@@ -4,8 +4,15 @@
  *  normalizes and resolves them). Stage 3 adds a Claude-backed implementation. */
 
 export interface SummaryJson {
+  /** the sermon's stated title, if the speaker named one (else omitted) */
+  title?: string
+  /** short label for the current section — always present */
   topic: string
+  /** up to 3 key points of the message so far */
   bullets: string[]
+  /** personal stories / illustrations the speaker told, each summarized in one
+   *  or two sentences with the point it was making */
+  illustrations?: string[]
   /** raw reference strings the model spotted, e.g. "Acts 2:38", "first Corinthians thirteen" */
   references: string[]
 }
@@ -33,10 +40,17 @@ export function parseSummaryJson(raw: string): SummaryJson | null {
   if (!Array.isArray(o['bullets'])) return null
   const bullets = o['bullets'].filter((b): b is string => typeof b === 'string').slice(0, 3)
   if (bullets.length === 0) return null
-  const references = Array.isArray(o['references'])
-    ? o['references'].filter((r): r is string => typeof r === 'string')
-    : []
-  return { topic: o['topic'].trim(), bullets, references }
+  const strArr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+  const out: SummaryJson = {
+    topic: o['topic'].trim(),
+    bullets,
+    references: strArr(o['references']),
+  }
+  if (typeof o['title'] === 'string' && o['title'].trim()) out.title = o['title'].trim()
+  const illustrations = strArr(o['illustrations'])
+  if (illustrations.length) out.illustrations = illustrations
+  return out
 }
 
 /** Deterministic mock: returns scripted outputs in order; repeats the last one

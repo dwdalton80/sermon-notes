@@ -100,23 +100,56 @@ continuity + a rolling window of the last ~4 000 tokens of transcript. Strict
 JSON out:
 
 ```json
-{ "topic": "…",
+{ "title": "When the Wind Came",
+  "topic": "Acts 2 - the church begins",
   "bullets": ["…", "…", "…"],
-  "references": [{ "spoken": "first Corinthians thirteen", "osis": "1Cor.13" }] }
+  "illustrations": ["The pastor's boyhood barn-roof storm, picturing the Spirit's power."],
+  "references": ["Acts 2:38", "first Corinthians thirteen"] }
 ```
+
+- **`title`** — the sermon's stated title if the speaker names one ("I've called
+  this message …", a title read aloud). Omitted until heard; the session locks
+  the first non-empty value and shows it on the glasses topic line.
+- **`topic`** — always present; short label for the current section.
+- **`bullets`** — up to 3 key points so far.
+- **`illustrations`** — personal stories / anecdotes, each summarized in 1–2
+  sentences **with the point it illustrates**. Accumulated across cycles
+  (near-duplicate suppressed) for the notes.
+- **`references`** — raw reference strings; the scripture engine resolves them.
 
 Invalid JSON → keep `lastSummary`, retry next cycle. Rolling window keeps cost
 bounded regardless of session length.
 
 ### Scripture resolution
 
-Two passes: (1) regex over new transcript for written forms
-("1 Cor 13:4-7", "John 3:16", "verse 16" with context carry); (2) Claude's
-`references` array for spoken forms. Normalize both to OSIS
-(`Book.Chapter.Verse`), dedupe against `seenRefs`. Resolve against bundled KJV
-JSON (`{ "John": { "3": { "16": "…" } } }`): single verse, ranges,
-cross-chapter. Unresolvable ref → still recorded in notes, flagged `?`, no
-takeover.
+Two passes: (1) `scripture/parse.ts` over the new transcript; (2) Claude's
+`references` strings. Both go through the same parser, which handles spoken
+forms: `John 3:16`, ranges incl. `Ephesians 8:5 through 10` →
+`Ephesians 8:5-10`, number words (`Acts two verse thirty eight`,
+`Psalm one hundred nineteen` — real numbers only, so `John three sixteen` stays
+chapter 3), `Romans 8:28, 38-39` lists, bare `verse 17` via context,
+single-chapter books (`Jude 3` = v3). Deepgram runs with `numerals: true` so
+most numbers arrive as digits; the word grammar is the safety net. Normalize to
+OSIS, dedupe against `seenOsis`, resolve against bundled KJV JSON (single verse,
+ranges, cross-chapter, clamp overruns). Whole-chapter mentions are topic markers
+— recorded but no verse takeover. Unresolvable ref → skipped.
+
+### Notes layout
+
+```
+# <title, or topic if none given>
+_<topic, shown under the title when both exist>_
+
+## Key points
+- …
+
+## Illustrations & stories
+- <1–2 sentence summary tying the story to its point>
+
+## Scripture references
+**John 3:16** (KJV)
+> For God so loved…
+```
 
 ## Glasses UI
 

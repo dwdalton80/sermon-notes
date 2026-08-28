@@ -2,7 +2,7 @@
  *  The client forwards the relevant ones to the glasses. */
 export type ServerEvent =
   | { type: 'session'; sessionId: string; resumed: boolean }
-  | { type: 'summary'; topic: string; bullets: string[] }
+  | { type: 'summary'; topic: string; bullets: string[]; title?: string }
   | {
       type: 'verse'
       ref: string

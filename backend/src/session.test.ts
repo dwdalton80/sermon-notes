@@ -23,11 +23,12 @@ function harness(
   return { session, events }
 }
 
-const S = (topic: string, bullets: string[], references: string[]): SummaryJson => ({
-  topic,
-  bullets,
-  references,
-})
+const S = (
+  topic: string,
+  bullets: string[],
+  references: string[],
+  extra: Partial<SummaryJson> = {},
+): SummaryJson => ({ topic, bullets, references, ...extra })
 
 describe('Session orchestration', () => {
   it('emits summary then new verses, and de-dupes repeated references', async () => {
@@ -113,6 +114,40 @@ describe('Session orchestration', () => {
     expect(notes && notes.type === 'notes' && notes.markdown).toContain('# Acts 2 - the church begins')
     expect(notes && notes.type === 'notes' && notes.markdown).toContain('**Acts 2:38** (KJV)')
     expect(notes && notes.type === 'notes' && notes.markdown).toMatch(/Repent, and be baptized/i)
+  })
+
+  it('carries sermon title into summary events and notes; accumulates illustrations', async () => {
+    const { session, events } = harness(
+      ['We are in Acts 2. Acts 2 verse 38 says repent.', 'This is grace, Ephesians 2 verse 8.'],
+      [
+        S('Acts 2', ['Peter preaches', 'Crowd convicted'], ['Acts 2:38'], {
+          title: 'When the Wind Came',
+          illustrations: ['A boyhood barn-roof storm, picturing the Spirit’s power.'],
+        }),
+        S('Acts 2', ['Grace through faith', 'Church devoted to prayer'], ['Ephesians 2:8'], {
+          title: 'When the Wind Came',
+          illustrations: ['A boyhood barn-roof storm, picturing the Spirit’s power.'],
+        }),
+      ],
+    )
+    session.pushPcm(frame)
+    await flush()
+    session.pushPcm(frame)
+    await flush()
+    await session.finish()
+
+    const firstSummary = events.find((e) => e.type === 'summary')
+    expect(firstSummary && firstSummary.type === 'summary' && firstSummary.title).toBe(
+      'When the Wind Came',
+    )
+    const notes = events.find((e) => e.type === 'notes')
+    const md = notes && notes.type === 'notes' ? notes.markdown : ''
+    expect(md).toContain('# When the Wind Came')
+    expect(md).toContain('## Key points')
+    expect(md).toContain('## Illustrations & stories')
+    expect(md).toContain('barn-roof storm')
+    // one illustration, not two, despite appearing in both cycles
+    expect(md.split('barn-roof storm').length - 1).toBe(1)
   })
 
   it('uses the time threshold when char threshold is not met', async () => {

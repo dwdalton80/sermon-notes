@@ -45,6 +45,8 @@ export class Session {
   private finished = false // finalize complete: stop accepting transcript
 
   private lastSummary: SummaryJson | null = null
+  private sermonTitle: string | null = null
+  private readonly illustrations: string[] = []
   private readonly seenOsis = new Set<string>()
   private readonly verseCache: Array<Extract<ServerEvent, { type: 'verse' }>> = []
   private lastSummaryEvent: Extract<ServerEvent, { type: 'summary' }> | null = null
@@ -122,6 +124,8 @@ export class Session {
         previous: this.lastSummary,
       })
       this.lastSummary = s
+      if (s.title && !this.sermonTitle) this.sermonTitle = s.title
+      this.mergeIllustrations(s.illustrations)
       await this.ingestReferences(s.references, this.transcript)
     } catch {
       // keep whatever we had
@@ -171,10 +175,13 @@ export class Session {
         previous: this.lastSummary,
       })
       this.lastSummary = s
+      if (s.title && !this.sermonTitle) this.sermonTitle = s.title
+      this.mergeIllustrations(s.illustrations)
       const summaryEvent: Extract<ServerEvent, { type: 'summary' }> = {
         type: 'summary',
         topic: s.topic,
         bullets: s.bullets.slice(0, 3),
+        ...(this.sermonTitle ? { title: this.sermonTitle } : {}),
       }
       this.lastSummaryEvent = summaryEvent
       this.emit(summaryEvent)
@@ -222,22 +229,45 @@ export class Session {
     }
   }
 
+  /** Accumulate illustration summaries across cycles, skipping near-duplicates. */
+  private mergeIllustrations(items: string[] | undefined): void {
+    if (!items) return
+    const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 40)
+    for (const item of items) {
+      const t = item.trim()
+      if (!t) continue
+      if (this.illustrations.some((e) => key(e) === key(t))) continue
+      this.illustrations.push(t)
+    }
+  }
+
   private buildNotes(): string {
     const lines: string[] = []
+    const title = this.sermonTitle?.trim()
     const topic = this.lastSummary?.topic?.trim() || 'Study notes'
-    lines.push(`# ${topic}`, '')
+    lines.push(`# ${title || topic}`, '')
+    if (title && topic && topic !== title) lines.push(`_${topic}_`, '')
+
     const bullets = this.lastSummary?.bullets ?? []
     if (bullets.length) {
-      lines.push('## Summary', '')
+      lines.push('## Key points', '')
       for (const b of bullets) lines.push(`- ${b}`)
       lines.push('')
     }
+
+    if (this.illustrations.length) {
+      lines.push('## Illustrations & stories', '')
+      for (const i of this.illustrations) lines.push(`- ${i}`)
+      lines.push('')
+    }
+
     if (this.verseCache.length) {
       lines.push('## Scripture references', '')
       for (const v of this.verseCache) {
         lines.push(`**${v.ref}** (${v.translation})`, '', `> ${v.text}`, '')
       }
     }
+
     if (this.transcript.includes('[gap]')) {
       lines.push('_Note: audio gaps occurred during this session (marked [gap] in the transcript)._', '')
     }
