@@ -69,8 +69,9 @@ ws.on('open', async () => {
     ws.send(pcm.subarray(i, Math.min(i + FRAME, pcm.length)))
     await new Promise((r) => setTimeout(r, 250))
   }
+  console.log('...audio sent, finishing')
   ws.send(JSON.stringify({ type: 'finish' }))
-  await new Promise((r) => setTimeout(r, 2000))
+  await new Promise((r) => setTimeout(r, 5000))
   ws.close()
   process.exit(0)
 })

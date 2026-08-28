@@ -41,7 +41,8 @@ export class Session {
   private parsedUpto = 0
   private lastSummarizeAt = 0
   private summarizing = false
-  private finished = false
+  private finishing = false // finish() called: stop new audio + mid-stream summaries
+  private finished = false // finalize complete: stop accepting transcript
 
   private lastSummary: SummaryJson | null = null
   private readonly seenOsis = new Set<string>()
@@ -73,7 +74,7 @@ export class Session {
   }
 
   pushPcm(frame: Uint8Array): void {
-    if (this.finished) return
+    if (this.finishing || this.finished) return
     this.stt.pushPcm(frame)
   }
 
@@ -99,9 +100,22 @@ export class Session {
   }
 
   async finish(): Promise<void> {
-    if (this.finished) return
-    this.finished = true
+    if (this.finishing || this.finished) return
+    this.finishing = true
     this.emit({ type: 'status', state: 'saving' })
+
+    // flush STT and wait for trailing results before the final pass; the
+    // transcript handler keeps appending during this window (finished still false)
+    try {
+      await this.stt.finalize()
+    } catch {
+      /* ignore */
+    }
+    this.finished = true
+
+    console.log(`[session] finishing — transcript ${this.transcript.length} chars`)
+    if (this.transcript) console.log(`[session] transcript: ${this.transcript}`)
+
     try {
       const s = await this.summarizer.run({
         transcript: this.windowTail(),
@@ -144,7 +158,7 @@ export class Session {
   }
 
   private async maybeSummarize(): Promise<void> {
-    if (this.summarizing || this.finished || !this.transcript) return
+    if (this.summarizing || this.finishing || this.finished || !this.transcript) return
     if (!this.dueForSummary()) return
 
     this.summarizing = true
@@ -187,6 +201,9 @@ export class Session {
     ]
     let emitted = 0
     for (const ref of candidates) {
+      // whole-chapter mentions ("Acts chapter 2") are topic markers, not verse
+      // takeovers — skip them; specific verses still come through.
+      if (ref.startVerse == null) continue
       const id = osisId(ref)
       if (this.seenOsis.has(id)) continue
       this.seenOsis.add(id)

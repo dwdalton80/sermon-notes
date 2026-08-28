@@ -12,6 +12,9 @@ export interface SttStream {
   pushPcm(frame: Uint8Array): void
   onTranscript(cb: (seg: TranscriptSegment) => void): void
   onStatus(cb: (s: 'open' | 'closed' | 'error') => void): void
+  /** Flush any buffered audio and resolve once trailing results have arrived
+   *  (or a short timeout). Called before the final summary pass. */
+  finalize(): Promise<void>
   close(): void
 }
 
@@ -36,6 +39,9 @@ export function createMockStt(finalSegments: string[]): SttStream {
     onStatus(cb) {
       statusCbs.push(cb)
       if (open) cb('open')
+    },
+    async finalize() {
+      // mock has nothing in flight
     },
     close() {
       open = false

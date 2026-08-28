@@ -13,6 +13,7 @@ export function createDeepgramStt(apiKey: string): SttStream {
   let isOpen = false
   let closed = false
   const pending: Uint8Array[] = []
+  let awaitingFinalize: (() => void) | null = null
 
   const emitStatus = (s: 'open' | 'closed' | 'error') => statusCbs.forEach((cb) => cb(s))
 
@@ -26,6 +27,7 @@ export function createDeepgramStt(apiKey: string): SttStream {
       interim_results: 'true',
       smart_format: 'true',
       punctuate: 'true',
+      numerals: 'true', // "chapter two verse eight" -> "chapter 2 verse 8"
     })
     .then((s) => {
       if (closed) {
@@ -35,6 +37,7 @@ export function createDeepgramStt(apiKey: string): SttStream {
       socket = s
       s.on('open', () => {
         isOpen = true
+        console.log(`[deepgram] connected (${pending.length} frames buffered)`)
         for (const f of pending.splice(0)) s.sendMedia(f)
         emitStatus('open')
       })
@@ -45,13 +48,25 @@ export function createDeepgramStt(apiKey: string): SttStream {
           channel?: { alternatives?: Array<{ transcript?: string }> }
         }
         if (r.type !== 'Results') return
+        const rf = msg as { from_finalize?: boolean }
         const text = r.channel?.alternatives?.[0]?.transcript ?? ''
-        if (!text) return
-        transcriptCbs.forEach((cb) => cb({ text, isFinal: r.is_final === true }))
+        if (text) {
+          if (r.is_final === true) console.log(`[deepgram] «${text}»`)
+          transcriptCbs.forEach((cb) => cb({ text, isFinal: r.is_final === true }))
+        }
+        if (rf.from_finalize && awaitingFinalize) {
+          const done = awaitingFinalize
+          awaitingFinalize = null
+          done()
+        }
       })
-      s.on('error', () => emitStatus('error'))
+      s.on('error', (err) => {
+        console.error('[deepgram] error:', err instanceof Error ? err.message : err)
+        emitStatus('error')
+      })
       s.on('close', () => {
         isOpen = false
+        console.log('[deepgram] closed')
         emitStatus('closed')
       })
       s.connect()
@@ -81,6 +96,28 @@ export function createDeepgramStt(apiKey: string): SttStream {
     onStatus(cb) {
       statusCbs.push(cb)
       if (isOpen) cb('open')
+    },
+    finalize() {
+      if (closed || !isOpen || !socket) return Promise.resolve()
+      for (const f of pending.splice(0)) socket.sendMedia(f)
+      return new Promise<void>((res) => {
+        const timer = setTimeout(() => {
+          awaitingFinalize = null
+          res()
+        }, 3000)
+        timer.unref?.()
+        awaitingFinalize = () => {
+          clearTimeout(timer)
+          res()
+        }
+        try {
+          socket!.sendFinalize({ type: 'Finalize' })
+        } catch {
+          clearTimeout(timer)
+          awaitingFinalize = null
+          res()
+        }
+      })
     },
     close() {
       closed = true
