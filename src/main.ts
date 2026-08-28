@@ -18,40 +18,18 @@ import { createFakeFeed } from './feed.js'
 import type { Feed } from './feed.js'
 import { createWsTransport } from './net.js'
 import { createAudioCapture } from './audio.js'
+import { Panel } from './panel.js'
+import { History } from './history.js'
 
 const BACKEND_URL =
   (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:8787'
 
-// ---------------------------------------------------------------------------
-// Phone-side panel — minimal for now; the full session-control + history UI
-// is Stage 6. Shows connection state, an event log, and the finished notes.
-// ---------------------------------------------------------------------------
+const root = document.querySelector<HTMLDivElement>('#app')!
+const history = new History(window.localStorage)
+const log = (m: string) => console.log('[app]', m)
 
-const app = document.querySelector<HTMLDivElement>('#app')!
-app.innerHTML = `
-  <main class="wrap">
-    <h1>Sermon Notes</h1>
-    <p class="sub">Live study notes on the glasses. The lens is the display.</p>
-    <dl class="kv"><dt>Bridge</dt><dd id="bridge">connecting…</dd>
-      <dt>Phase</dt><dd id="phase">—</dd></dl>
-    <h2>Event log</h2>
-    <ul id="log" class="log"></ul>
-    <div id="notes"></div>
-  </main>
-`
-const el = (id: string) => document.getElementById(id)!
-const log = (m: string) => {
-  console.log('[app]', m)
-  const li = document.createElement('li')
-  li.textContent = `${new Date().toLocaleTimeString()}  ${m}`
-  el('log').prepend(li)
-}
-
-// ---------------------------------------------------------------------------
 // Adapt the real EvenAppBridge to the small GlassesBridge our page needs,
 // wrapping plain option objects in the SDK's container classes.
-// ---------------------------------------------------------------------------
-
 function toContainers(c: CreatePayload) {
   return {
     containerTotalNum: c.containerTotalNum,
@@ -61,7 +39,6 @@ function toContainers(c: CreatePayload) {
     }),
   }
 }
-
 function adapt(bridge: EvenAppBridge): GlassesBridge {
   return {
     createStartUpPageContainer: (c) =>
@@ -74,43 +51,30 @@ function adapt(bridge: EvenAppBridge): GlassesBridge {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Boot
-// ---------------------------------------------------------------------------
+// One live session's wiring.
+interface Live {
+  ctrl: SessionController
+  feed: Feed
+  audio: ReturnType<typeof createAudioCapture> | null
+  stop: () => void
+}
 
-async function boot() {
-  let bridge: EvenAppBridge
-  try {
-    bridge = await Promise.race([
-      waitForEvenAppBridge(),
-      new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error('no Even App bridge')), 4000),
-      ),
-    ])
-  } catch {
-    el('bridge').textContent = 'not connected — open in the Even App or simulator'
-    log('running without a bridge; glasses view unavailable')
-    return
-  }
-  el('bridge').textContent = 'connected'
-  log('bridge connected')
-
+async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> {
   const page = new GlassesPage(adapt(bridge))
 
-  // Real transport + glasses-mic capture; fall back to the canned feed if the
-  // backend isn't reachable (browser/offline dev).
   let feed: Feed
   let audio: ReturnType<typeof createAudioCapture> | null = null
   const transport = createWsTransport({ baseUrl: BACKEND_URL })
   try {
     await transport.start()
-    audio = createAudioCapture(bridge, (frame) => transport.sendPcm(frame), AudioInputSource.Glasses)
+    audio = createAudioCapture(bridge, (f) => transport.sendPcm(f), AudioInputSource.Glasses)
     feed = transport
     log(`connected to ${BACKEND_URL} (session ${transport.sessionId})`)
   } catch (err) {
     transport.stop()
     feed = createFakeFeed()
-    log(`no backend at ${BACKEND_URL} — using canned feed (${err instanceof Error ? err.message : err})`)
+    log(`no backend at ${BACKEND_URL} — canned feed (${err instanceof Error ? err.message : err})`)
+    panel.setStatus('No backend — running a demo feed')
   }
 
   const ctrl = new SessionController({
@@ -118,49 +82,85 @@ async function boot() {
     requestFinish: () => {
       feed.finish()
       void audio?.stop()
+      panel.setPhase('saving')
     },
-    onPauseChange: (paused) => {
-      log(paused ? 'audio paused' : 'audio resumed')
-      void (paused ? audio?.pause() : audio?.resume())
-    },
+    onPauseChange: (paused) => void (paused ? audio?.pause() : audio?.resume()),
   })
 
   feed.onEvent((ev) => {
-    if (ev.type === 'summary') log(`summary: ${ev.topic}${ev.title ? ` (${ev.title})` : ''}`)
-    else if (ev.type === 'verse') log(`verse: ${ev.ref}`)
-    else if (ev.type === 'status') log(`status: ${ev.state}`)
-    else if (ev.type === 'notes') {
-      log('notes received')
-      el('notes').innerHTML = `<h2>Notes</h2><pre>${escapeHtml(ev.markdown)}</pre>`
-    }
+    if (ev.type === 'summary') panel.setStatus(`${ev.topic}`)
+    else if (ev.type === 'verse') panel.setStatus(`scripture: ${ev.ref}`)
+    else if (ev.type === 'status' && ev.state === 'reconnecting') panel.setStatus('Reconnecting…')
+    else if (ev.type === 'status' && ev.state === 'stt_down') panel.setStatus('Transcription paused')
+    else if (ev.type === 'notes') panel.showNotes(ev.markdown)
     ctrl.handleServerEvent(ev)
-    el('phase').textContent = ctrl.phase
-  })
-
-  bridge.onEvenHubEvent((event: EvenHubEvent) => {
-    if (event.menuItemClickEvent?.itemID != null) {
-      log(`menu ${event.menuItemClickEvent.itemID}`)
-      ctrl.onMenu(event.menuItemClickEvent.itemID)
-      el('phase').textContent = ctrl.phase
-      return
-    }
-    const et =
-      event.listEvent?.eventType ?? event.textEvent?.eventType ?? event.sysEvent?.eventType
-    if (et === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-      // root-page exit must use mode 1 (QA requirement)
-      log('double-tap → exit')
-      void bridge.shutDownPageContainer(1)
-    }
   })
 
   await ctrl.start()
   await audio?.start()
-  el('phase').textContent = ctrl.phase
-  log(audio ? 'listening (glasses mic)' : 'listening (canned feed)')
+  panel.setPhase('running')
+  panel.setStatus('Listening…')
+
+  return {
+    ctrl,
+    feed,
+    audio,
+    stop: () => {
+      feed.stop()
+      void audio?.stop()
+    },
+  }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
+async function boot() {
+  let bridge: EvenAppBridge | null = null
+  try {
+    bridge = await Promise.race([
+      waitForEvenAppBridge(),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('no bridge')), 4000)),
+    ])
+  } catch {
+    log('no Even App bridge')
+  }
+
+  let live: Live | null = null
+
+  const panel = new Panel({
+    root,
+    history,
+    onStart: () => {
+      if (!bridge || live) return
+      void startSession(bridge, panel).then((l) => {
+        live = l
+      })
+    },
+    onStop: () => {
+      live?.ctrl.stop()
+    },
+  })
+  panel.setBridgeReady(bridge !== null)
+
+  // dev/test affordance: ?autostart begins a session without a tap
+  if (bridge && new URLSearchParams(location.search).has('autostart')) {
+    void startSession(bridge, panel).then((l) => {
+      live = l
+    })
+  }
+
+  if (bridge) {
+    bridge.onEvenHubEvent((event: EvenHubEvent) => {
+      if (event.menuItemClickEvent?.itemID != null) {
+        live?.ctrl.onMenu(event.menuItemClickEvent.itemID)
+        return
+      }
+      const et =
+        event.listEvent?.eventType ?? event.textEvent?.eventType ?? event.sysEvent?.eventType
+      if (et === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        // root-page exit must use mode 1 (QA requirement)
+        void bridge!.shutDownPageContainer(1)
+      }
+    })
+  }
 }
 
 void boot()
