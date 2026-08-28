@@ -71,7 +71,7 @@ ws.on('open', async () => {
   }
   console.log('...audio sent, finishing')
   ws.send(JSON.stringify({ type: 'finish' }))
-  await new Promise((r) => setTimeout(r, 5000))
+  await new Promise((r) => setTimeout(r, 15000))
   ws.close()
   process.exit(0)
 })

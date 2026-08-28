@@ -1,7 +1,11 @@
 import { GoogleGenAI } from '@google/genai'
 import type { Section, SummarizeInput, Summarizer, SummaryJson } from './summarize.js'
 
-const MODEL = process.env.SUMMARIZER_MODEL ?? 'gemini-2.5-flash-lite'
+const MODEL = process.env.SUMMARIZER_MODEL ?? 'gemini-3.5-flash-lite'
+// hard ceiling per call — Gemini flash-lite normally answers in ~1s, but the
+// free tier 503s under load and the SDK would otherwise retry for a long time.
+// On timeout the session keeps its current section and retries next cycle.
+const CALL_TIMEOUT_MS = 12_000
 
 const SYSTEM = `You take live study notes while a minister teaches (expository preaching).
 You are called repeatedly with a rolling window of the most recent transcript.
@@ -63,18 +67,22 @@ export function createGeminiSummarizer(): Summarizer {
             .join('\n')}`
         : 'Current section: (none yet — this is the start)'
 
-      const res = await ai.models.generateContent({
-        model: MODEL,
-        contents: `${ctx}\n\n--- recent transcript ---\n${input.transcript}`,
-        config: {
-          systemInstruction: SYSTEM,
-          responseMimeType: 'application/json',
-          responseJsonSchema: RESPONSE_SCHEMA,
-          thinkingConfig: { thinkingBudget: 0 },
-          temperature: 0.2,
-          maxOutputTokens: 2000,
-        },
-      })
+      const res = await Promise.race([
+        ai.models.generateContent({
+          model: MODEL,
+          contents: `${ctx}\n\n--- recent transcript ---\n${input.transcript}`,
+          config: {
+            systemInstruction: SYSTEM,
+            responseMimeType: 'application/json',
+            responseJsonSchema: RESPONSE_SCHEMA,
+            temperature: 0.2,
+            maxOutputTokens: 2000,
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`gemini call exceeded ${CALL_TIMEOUT_MS}ms`)), CALL_TIMEOUT_MS),
+        ),
+      ])
 
       let raw: RawSummary
       try {

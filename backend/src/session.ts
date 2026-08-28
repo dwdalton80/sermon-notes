@@ -127,8 +127,10 @@ export class Session {
       })
       this.applySummary(s)
       await this.ingestReferences(s.references, this.transcript)
-    } catch {
-      // keep whatever we had
+    } catch (err) {
+      console.error('[session] final summarize failed:', err instanceof Error ? err.message : err)
+      // still resolve any references straight from the transcript
+      await this.ingestReferences([], this.transcript)
     }
     this.emit({ type: 'notes', markdown: this.buildNotes() })
     this.emit({ type: 'status', state: 'ended' })
@@ -179,7 +181,8 @@ export class Session {
       const delta = this.transcript.slice(this.parsedUpto)
       this.parsedUpto = this.transcript.length
       await this.ingestReferences(s.references, delta)
-    } catch {
+    } catch (err) {
+      console.error('[session] summarize failed:', err instanceof Error ? err.message : err)
       this.emit({ type: 'status', state: 'summarizer_down' })
     } finally {
       this.summarizing = false
@@ -273,11 +276,17 @@ export class Session {
     const sections = [...this.outline]
     if (this.currentSection) sections.push(this.currentSection)
 
-    const title = this.sermonTitle?.trim() || sections[0]?.heading || 'Study notes'
-    lines.push(`# ${title}`, '')
+    const title = this.sermonTitle?.trim()
+    lines.push(`# ${title || 'Study notes'}`, '')
 
     for (const sec of sections) {
-      lines.push(`## ${sec.heading}`, '')
+      // skip a redundant "## heading" when it just repeats an untitled doc's
+      // single section
+      if (!title && sections.length === 1) {
+        lines[0] = `# ${sec.heading}`
+      } else {
+        lines.push(`## ${sec.heading}`, '')
+      }
       for (const b of sec.bullets) lines.push(`- ${b}`)
       lines.push('')
     }
