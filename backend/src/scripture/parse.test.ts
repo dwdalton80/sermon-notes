@@ -43,6 +43,18 @@ describe('parseReferences', () => {
     ['Jude 3', [['Jude', 1, 3, 1, 3]]],
     ['Jude 3-5', [['Jude', 1, 3, 1, 5]]],
     ['Philemon 6', [['Phlm', 1, 6, 1, 6]]],
+    // spoken audio: "through" ranges and number words
+    ['Ephesians 8:5 through 10', [['Eph', 8, 5, 8, 10]]],
+    ['Ephesians chapter four verse five through ten', [['Eph', 4, 5, 4, 10]]],
+    ['John chapter three verse sixteen', [['John', 3, 16, 3, 16]]],
+    ['Acts two verse thirty eight', [['Acts', 2, 38, 2, 38]]],
+    ['first Corinthians chapter thirteen', [['1Cor', 13, null, 13, null]]],
+    ['he read Psalm one hundred nineteen', [['Ps', 119, null, 119, null]]],
+    ['Romans eight verse twenty eight through thirty nine', [['Rom', 8, 28, 8, 39]]],
+    // no bare-space number pairing: "Genesis one one" is just chapter 1
+    ['Genesis one one', [['Gen', 1, null, 1, null]]],
+    // number words with no book are not a reference
+    ['two verse eight', []],
     // negatives
     ['it is 5 degrees outside', []],
     ['the meeting starts at 3:16 pm', []],

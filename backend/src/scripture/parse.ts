@@ -7,10 +7,26 @@ export interface ParseContext {
   lastRef?: Ref
 }
 
+// number words, so spoken audio like "chapter two verse eight" or
+// "verse five through ten" still parses (chapter/verse values top out at 176).
+// The grammar only accepts real numbers — "one" / "twenty eight" /
+// "one hundred nineteen" — not bare unit runs like "three sixteen" (that means
+// 3:16, not 19). toInt() evaluates the matched token.
+// longest-first so "sixteen" wins over "six"; \b so "six" can't match inside "sixteen"
+const U19 =
+  'nineteen|eighteen|seventeen|sixteen|fifteen|fourteen|thirteen|twelve|eleven|ten|nine|eight|seven|six|five|four|three|two|one'
+const U9 = 'nine|eight|seven|six|five|four|three|two|one'
+const T = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety'
+// 1-99
+const T2 = String.raw`(?:(?:${T})(?:[\s-]+(?:${U9}))?\b|(?:${U19})\b)`
+const NUMWORD = String.raw`(?:(?:${U9})\b[\s-]+hundred\b(?:[\s-]+(?:and[\s-]+)?${T2})?|hundred\b(?:[\s-]+(?:and[\s-]+)?${T2})?|${T2})`
+// a number, as digits or words
+const NUM = String.raw`(?:\d+|${NUMWORD})`
+
 // verse separator: ":" / "." (no spaces) / the words "verse(s)" / "v."
 const SEP = String.raw`(?:\s*:\s*|\.(?=\d)|\s+verses?\s+|\s+v\.?\s+)`
-// range separator: hyphen / en / em dash / "through" / "to"
-const DASH = String.raw`(?:\s*[-–—]\s*|\s+(?:through|to)\s+)`
+// range separator: hyphen / en / em dash / "through" / "to" / "thru"
+const DASH = String.raw`(?:\s*[-–—]\s*|\s+(?:through|thru|to)\s+)`
 
 // optional leading book numeral: "1" / "II" / "First"
 const ORD = String.raw`(?:([1-3])\s*|(I{1,3})\s+|(first|second|third)\s+)`
@@ -22,25 +38,58 @@ const PRIMARY = new RegExp(
     ORD +
     `?` +
     NAME +
-    String.raw`\.?\s*(?:chapters?\s+)?(\d+)` + // chapter  (g5)
-    `(?:` + SEP + String.raw`(\d+))?` + //         verse    (g6)
+    String.raw`\.?\s*(?:chapters?\s+)?(${NUM})` + // chapter  (g5)
+    `(?:` + SEP + String.raw`(${NUM}))?` + //         verse    (g6)
     `(?:` +
     DASH +
-    String.raw`(?:(\d+)` +
+    String.raw`(?:(${NUM})` +
     SEP +
-    String.raw`)?(\d+))?`, // range end chapter (g7) + end number (g8)
+    String.raw`)?(${NUM}))?`, // range end chapter (g7) + end number (g8)
   'gi',
 )
 
 // continuation list item, e.g. the ", 38-39" in "Romans 8:28, 38-39".
 // Only meaningful immediately after a primary/continuation match.
-const CONT = new RegExp(String.raw`\s*,\s*(\d+)(?:` + DASH + String.raw`(\d+))?`, 'y')
+const CONT = new RegExp(
+  String.raw`\s*,\s*(${NUM})(?:` + DASH + String.raw`(${NUM}))?`,
+  'yi',
+)
 
 // bare verse pointer, e.g. "verse 12" / "verses 3-5" / "vv. 3-5"
 const BARE = new RegExp(
-  String.raw`(?<![A-Za-z])(?:verses?|vv?\.?)\s+(\d+)(?:` + DASH + String.raw`(\d+))?`,
+  String.raw`(?<![A-Za-z])(?:verses?|vv?\.?)\s+(${NUM})(?:` + DASH + String.raw`(${NUM}))?`,
   'gi',
 )
+
+const UNITS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+  sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+}
+const TENS: Record<string, number> = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+}
+
+/** Parse a chapter/verse token (digits or number words) to an int, or null. */
+function toInt(tok: string | undefined): number | null {
+  if (!tok) return null
+  const t = tok.trim().toLowerCase()
+  if (/^\d+$/.test(t)) {
+    const n = Number(t)
+    return n >= 1 && n <= 200 ? n : null
+  }
+  let total = 0
+  let current = 0
+  for (const w of t.replace(/-/g, ' ').split(/\s+/)) {
+    if (w === '' || w === 'and') continue
+    if (w in UNITS) current += UNITS[w]!
+    else if (w in TENS) current += TENS[w]!
+    else if (w === 'hundred') current = (current || 1) * 100
+    else return null
+  }
+  total += current
+  return total >= 1 && total <= 200 ? total : null
+}
 
 const WORD_ORD: Record<string, string> = { first: '1', second: '2', third: '3' }
 
@@ -85,10 +134,11 @@ export function parseReferences(text: string, ctx: ParseContext = {}): Ref[] {
     const book = nameToOsis(token)
     if (!book) continue
 
-    const startChapter = Number(m[5])
-    const startVerse = m[6] != null ? Number(m[6]) : null
-    const rangeEndChapter = m[7] != null ? Number(m[7]) : null
-    const rangeEndNum = m[8] != null ? Number(m[8]) : null
+    const startChapter = toInt(m[5])
+    if (startChapter == null) continue
+    const startVerse = m[6] != null ? toInt(m[6]) : null
+    const rangeEndChapter = m[7] != null ? toInt(m[7]) : null
+    const rangeEndNum = m[8] != null ? toInt(m[8]) : null
 
     let endChapter = startChapter
     let endVerse = startVerse
@@ -127,8 +177,9 @@ export function parseReferences(text: string, ctx: ParseContext = {}): Ref[] {
     CONT.lastIndex = PRIMARY.lastIndex
     let c: RegExpExecArray | null
     while (base.startVerse != null && (c = CONT.exec(text))) {
-      const v1 = Number(c[1])
-      const v2 = c[2] != null ? Number(c[2]) : null
+      const v1 = toInt(c[1])
+      if (v1 == null) break
+      const v2 = c[2] != null ? toInt(c[2]) : null
       const cont: Ref = {
         raw: c[0].trim(),
         book: base.book,
@@ -155,8 +206,9 @@ export function parseReferences(text: string, ctx: ParseContext = {}): Ref[] {
       if (spans[i]! <= idx) baseRef = out[i]
     }
     if (!baseRef) continue
-    const v1 = Number(m[1])
-    const v2 = m[2] != null ? Number(m[2]) : null
+    const v1 = toInt(m[1])
+    if (v1 == null) continue
+    const v2 = m[2] != null ? toInt(m[2]) : null
     push(
       {
         raw: m[0],
