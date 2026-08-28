@@ -2,6 +2,7 @@ import './style.css'
 import {
   waitForEvenAppBridge,
   OsEventTypeList,
+  AudioInputSource,
   CreateStartUpPageContainer,
   RebuildPageContainer,
   TextContainerProperty,
@@ -15,6 +16,11 @@ import type { CreatePayload, GlassesBridge, TextUpgrade } from './glasses/page.j
 import { SessionController } from './session.js'
 import { createFakeFeed } from './feed.js'
 import type { Feed } from './feed.js'
+import { createWsTransport } from './net.js'
+import { createAudioCapture } from './audio.js'
+
+const BACKEND_URL =
+  (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:8787'
 
 // ---------------------------------------------------------------------------
 // Phone-side panel — minimal for now; the full session-control + history UI
@@ -90,12 +96,33 @@ async function boot() {
   log('bridge connected')
 
   const page = new GlassesPage(adapt(bridge))
-  const feed: Feed = createFakeFeed()
+
+  // Real transport + glasses-mic capture; fall back to the canned feed if the
+  // backend isn't reachable (browser/offline dev).
+  let feed: Feed
+  let audio: ReturnType<typeof createAudioCapture> | null = null
+  const transport = createWsTransport({ baseUrl: BACKEND_URL })
+  try {
+    await transport.start()
+    audio = createAudioCapture(bridge, (frame) => transport.sendPcm(frame), AudioInputSource.Glasses)
+    feed = transport
+    log(`connected to ${BACKEND_URL} (session ${transport.sessionId})`)
+  } catch (err) {
+    transport.stop()
+    feed = createFakeFeed()
+    log(`no backend at ${BACKEND_URL} — using canned feed (${err instanceof Error ? err.message : err})`)
+  }
 
   const ctrl = new SessionController({
     page,
-    requestFinish: () => feed.finish(),
-    onPauseChange: (paused) => log(paused ? 'audio paused' : 'audio resumed'),
+    requestFinish: () => {
+      feed.finish()
+      void audio?.stop()
+    },
+    onPauseChange: (paused) => {
+      log(paused ? 'audio paused' : 'audio resumed')
+      void (paused ? audio?.pause() : audio?.resume())
+    },
   })
 
   feed.onEvent((ev) => {
@@ -127,8 +154,9 @@ async function boot() {
   })
 
   await ctrl.start()
+  await audio?.start()
   el('phase').textContent = ctrl.phase
-  log('listening')
+  log(audio ? 'listening (glasses mic)' : 'listening (canned feed)')
 }
 
 function escapeHtml(s: string): string {

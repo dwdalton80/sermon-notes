@@ -10,6 +10,7 @@ export type ServerEvent =
 
 export type SessionStatusState =
   | 'listening'
+  | 'reconnecting' // client-only: transport lost the socket
   | 'stt_down'
   | 'summarizer_down'
   | 'saving'

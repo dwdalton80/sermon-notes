@@ -105,6 +105,11 @@ export class SessionController {
           void this.page.setTopic('Saving...')
         } else if (ev.state === 'stt_down') {
           void this.page.setTopic('Transcription paused')
+        } else if (ev.state === 'reconnecting') {
+          if (this.phase === 'listening') void this.page.setTopic('Reconnecting...')
+        } else if (ev.state === 'listening') {
+          // transport (re)connected — restore the current headline
+          if (this.phase === 'listening') void this.page.setTopic(this.headline())
         } else if (ev.state === 'summarizer_down') {
           // transient; leave the display as-is
         }
