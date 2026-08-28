@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
+
+// Load backend/.env if present (gitignored; holds provider API keys).
+try {
+  process.loadEnvFile(new URL('../.env', import.meta.url))
+} catch {
+  /* no .env — rely on the ambient environment */
+}
+
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'

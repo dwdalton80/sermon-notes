@@ -1,7 +1,7 @@
 /** Streaming speech-to-text abstraction. The mock is driven by a script of
  *  segments (one emitted per PCM frame pushed) so tests stay deterministic and
- *  offline. Stage 3 adds a Deepgram-backed implementation behind the same
- *  interface. */
+ *  offline. `stt.deepgram.ts` provides the real implementation. */
+import { createDeepgramStt } from './stt.deepgram.js'
 
 export interface TranscriptSegment {
   text: string
@@ -44,8 +44,13 @@ export function createMockStt(finalSegments: string[]): SttStream {
   }
 }
 
-/** Provider factory. Stage 2 only has the mock; the fixture supplies its script. */
+/** Provider factory. `STT_PROVIDER=deepgram` uses real streaming STT; anything
+ *  else replays `mockSegments` (the fixture) one per PCM frame. */
 export function createStt(mockSegments: string[]): SttStream {
-  // Stage 3: if (process.env.STT_PROVIDER === 'deepgram') return createDeepgramStt()
+  if (process.env.STT_PROVIDER === 'deepgram') {
+    const key = process.env.DEEPGRAM_API_KEY
+    if (!key) throw new Error('STT_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set')
+    return createDeepgramStt(key)
+  }
   return createMockStt(mockSegments)
 }

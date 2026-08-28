@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "fetch-kjv": "tsx scripts/fetch-kjv.ts"
+    "fetch-kjv": "tsx scripts/fetch-kjv.ts",
+    "feed": "tsx scripts/feed-wav.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -19,6 +20,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@deepgram/sdk": "^5.8.0",
     "@hono/node-server": "^2.1.1",
     "hono": "^4.13.5",
     "ws": "^8.21.3"
