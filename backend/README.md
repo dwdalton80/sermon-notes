@@ -49,38 +49,52 @@ npm --prefix backend run dev
 npm --prefix backend run feed -- fixtures/sample-16k.wav
 ```
 
-## Deploy (Fly.io)
+## Deploy (Render — free, no card)
 
-`fly.toml` and `Dockerfile` are in this directory. Fly builds remotely, so you
-don't need Docker locally — just the `fly` CLI (`brew install flyctl`) and a
-Fly account.
+Render deploys from a connected Git repo, so the code needs to be on GitHub /
+GitLab / Bitbucket (a **private** repo is fine). The Blueprint lives at the repo
+root: [`render.yaml`](../render.yaml).
 
-```bash
-cd backend
-fly auth login
-fly launch --no-deploy --copy-config --name sermon-notes-backend   # first time
-fly secrets set \
-  STT_PROVIDER=deepgram        DEEPGRAM_API_KEY=... \
-  SUMMARIZER_PROVIDER=gemini   GEMINI_API_KEY=...
-fly deploy
-```
+1. Push this repo to GitHub (see the repo root `README.md`).
+2. In the Render dashboard: **New → Blueprint**, pick the repo. It reads
+   `render.yaml` and creates `sermon-notes-backend` (Docker, free plan,
+   health-checked at `/healthz`).
+3. Open the service → **Environment** → add:
+   - `DEEPGRAM_API_KEY` = your Deepgram key
+   - `GEMINI_API_KEY` = your Google AI Studio key
+   (`STT_PROVIDER=deepgram` and `SUMMARIZER_PROVIDER=gemini` come from the
+   Blueprint.)
+4. First deploy runs automatically. You get a URL like
+   `https://sermon-notes-backend.onrender.com`.
 
-`fly deploy` prints the app URL, e.g. `https://sermon-notes-backend.fly.dev`.
 Then:
 
-1. Verify: `curl https://sermon-notes-backend.fly.dev/healthz` → `{"ok":true,...}`
-2. Point the glasses app at it — build with
-   `VITE_BACKEND_URL=https://sermon-notes-backend.fly.dev npm run build`
-   (from the repo root), or set it in a root `.env`.
+1. Verify: `curl https://<your-app>.onrender.com/healthz` → `{"ok":true,...}`
+2. Point the glasses app at it — build from the repo root with
+   `VITE_BACKEND_URL=https://<your-app>.onrender.com npm run build`, or put that
+   line in a repo-root `.env`.
 3. Add the host to `app.json` → `permissions` → `network` → `whitelist`
    (both `https://…` and `wss://…`), replacing `REPLACE_WITH_BACKEND_HOST`.
 
-WebSockets work over Fly's HTTP service with no extra config.
-`auto_stop_machines = "suspend"` keeps idle cost near zero; the first request
-after idle wakes the machine in ~1 s.
+Render's free web service **sleeps after ~15 min idle** and takes ~50 s to wake
+on the next request. During a session there's continuous audio traffic so it
+won't sleep mid-sermon — you just eat the wake-up on the first connect. Hitting
+`/healthz` a minute before the service (or from the panel on open) avoids it.
+Render sets `PORT` itself; the server honours it.
 
-Render / Railway work the same way — point them at this `Dockerfile` and set the
-same env vars.
+### Alternative: Fly.io (needs a card)
+
+`fly.toml` + `Dockerfile` are set up. `brew install flyctl`, then:
+
+```bash
+cd backend && fly auth login
+fly launch --no-deploy --copy-config --name sermon-notes-backend
+fly secrets set STT_PROVIDER=deepgram DEEPGRAM_API_KEY=... SUMMARIZER_PROVIDER=gemini GEMINI_API_KEY=...
+fly deploy
+```
+
+Fly deploys from the local folder (no Git repo needed) but requires a payment
+method on file even for the near-zero idle tier.
 
 ## HTTP / WS surface
 

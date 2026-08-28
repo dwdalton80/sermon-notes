@@ -1,99 +1,104 @@
-# Even Hub Demo
+# Sermon Notes — Even Realities G2
 
-A starter app for **Even Realities G2** smart glasses, built with the
-[Even Hub SDK](https://hub.evenrealities.com/docs/get-started/overview).
+Live study notes on **Even Realities G2** smart glasses. During a message the
+lens shows a rolling outline of the current point, and each scripture reference
+takes over the screen briefly with its King James Version text. When the session
+ends, the phone keeps a structured set of notes.
 
-An Even app is just a web app (HTML/CSS/TS) that runs inside the Even App
-WebView on your phone. The phone does the work; the glasses are the display.
-The `@evenrealities/even_hub_sdk` bridge is how your code talks to the glasses.
+An Even app is a web app that runs inside the Even App WebView on the phone; the
+glasses are the display. This repo has two parts:
 
-## What this demo does
+| Path | What it is |
+| --- | --- |
+| `src/`, `app.json` | the glasses client (Vite + TS + `@evenrealities/even_hub_sdk`) |
+| `backend/` | a Node/TS service: Deepgram STT → Gemini summarizer → scripture resolver → notes, over a WebSocket |
+| `docs/plans/` | design + staged implementation plan |
+| `docs/PRIVACY.md` | fill-in privacy policy for submission |
 
-- Waits for the Even App bridge, then reads user + device info
-- Creates a start-up page container on the glasses with one text container
-- Registers a first-level contextual menu ("Say hello" / "Say bye") that
-  updates the on-glasses text via `textContainerUpgrade`
-- Handles input events: tap, swipe up/down, long press, menu open/close
-- Exits on root-page double-tap via `shutDownPageContainer(1)` (the mode
-  reviewers require — mode 0 / custom exit UI on the root page is rejected)
-- Logs launch source and device status
-- Falls back to a plain status panel when opened in a normal browser tab
-  (no bridge), so you can still iterate on layout
-
-Source: [`src/main.ts`](src/main.ts). Manifest: [`app.json`](app.json).
-
-## Prerequisites
-
-- Node.js 20 LTS or 22+ (`node --version`)
-- Even Realities account + Developer Mode enabled at https://hub.evenrealities.com
-- For on-glasses testing: G2 glasses woken from shipping mode and paired,
-  Even App `2.2.9`+
-- Global tooling (already installed on this machine):
-
-  ```bash
-  npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator
-  ```
-
-## Develop
+## Run it locally
 
 ```bash
-npm install        # first time only
-npm run dev         # Vite dev server on http://localhost:5173 (LAN-exposed)
+# 1. deps
+npm install
+npm --prefix backend install
+
+# 2. one-time: build the bundled KJV
+npm --prefix backend run fetch-kjv
+
+# 3. backend keys — see backend/.env.example
+cp backend/.env.example backend/.env   # add DEEPGRAM_API_KEY + GEMINI_API_KEY
+
+# 4. run: three terminals
+npm --prefix backend run dev           # backend on :8787
+npm run dev                            # Vite client on :5173
+npm run sim                            # evenhub simulator
 ```
 
-Then, in a second terminal, pick one:
+Without a backend the client falls back to a canned demo feed, so the glasses
+UI still works for layout iteration.
 
-**Simulator** (no hardware needed):
+## Tests
 
 ```bash
-npm run sim        # evenhub-simulator http://localhost:5173
+npm test                 # client (35)
+npm --prefix backend test # backend (62)
 ```
 
-**Real glasses** via QR sideload (Developer Mode must be on):
+## Deploy the backend
+
+Free, no credit card: **Render**. See [`backend/README.md`](backend/README.md)
+for the walkthrough. In short: push this repo to GitHub → Render **New →
+Blueprint** picks up [`render.yaml`](render.yaml) → set `DEEPGRAM_API_KEY` and
+`GEMINI_API_KEY` in the dashboard → you get a `https://…onrender.com` URL.
+
+Then build the client against it and finish `app.json`:
 
 ```bash
-# print your LAN IP
-ipconfig getifaddr en0
-
-# generate a QR pointing at the dev server
-evenhub qr --url "http://<YOUR-LAN-IP>:5173"
+VITE_BACKEND_URL=https://<your-app>.onrender.com npm run build
 ```
 
-In the Even App tap **Scan QR** and aim at the terminal. Hot reload works.
+- Put the host in `app.json` → `permissions` → `network` → `whitelist`
+  (both `https://…` and `wss://…`), replacing `REPLACE_WITH_BACKEND_HOST`.
+- Publish `docs/PRIVACY.md` at a stable URL and link it in the submission.
 
 ## Package & submit
 
 ```bash
-npm run pack       # builds dist/, then: evenhub pack app.json dist -o even-hub-demo.ehpk
+evenhub login
+VITE_BACKEND_URL=https://<your-app>.onrender.com npm run build
+evenhub pack app.json dist -o sermon-notes.ehpk -c
 ```
 
-Upload the `.ehpk` at https://hub.evenrealities.com following the App
-Submission & QA guidelines. Bump `version` in `app.json` for each build.
+Upload the `.ehpk` at <https://hub.evenrealities.com> following the App
+Submission & QA guidelines. Bump `version` in `app.json` per build.
 
-## Manifest notes (`app.json`)
+## Push this repo to GitHub
 
-| Field             | Meaning                                                        |
-| ----------------- | ------------------------------------------------------------- |
-| `package_id`      | Reverse-DNS, lowercase, no hyphens, ≥2 segments. Change before real submission. |
-| `edition`         | Platform edition target (`202601`).                          |
-| `name`            | ≤20 chars and must **not** contain "Even" (case-insensitive). |
-| `version`         | Three-part semver, no prefix/suffix.                         |
-| `min_sdk_version` | Must match the installed `@evenrealities/even_hub_sdk`.       |
-| `min_app_version` | Even App floor; auto-stamped by `evenhub pack` from the SDK (SDK 0.0.14 → `2.2.9`). |
-| `permissions`     | Array of objects. Empty here. `name` ∈ `network`, `location`, `g2-microphone`, `phone-microphone`, `album`, `camera`; each needs a `desc`; `network` needs a `whitelist` of full `https://` origins. Declare only what you use — unused entries are rejected at review. |
+The project is a local git repo with no remote yet. To deploy on Render you need
+it on GitHub (a private repo is fine):
 
-## Hardware constraints to design around
+```bash
+# option A: GitHub CLI
+brew install gh && gh auth login
+gh repo create sermon-notes --private --source=. --push
+
+# option B: create the repo at github.com, then
+git remote add origin git@github.com:<you>/sermon-notes.git
+git push -u origin main
+```
+
+## Design constraints (G2)
 
 - Display: 576 × 288 px per eye, monochrome green, 16 brightness levels
 - No camera or speaker on the glasses; 4-mic array in, 16 kHz PCM
 - Input: temple touchpads + optional R1 ring (tap / swipe / long-press)
-- Transport: BLE 5.2 — keep payloads small; images are LZ4-compressed by the SDK
-- `containerTotalNum` 1–12; max 8 text containers; exactly one container
-  should set `isEventCapture: 1`
+- BLE 5.2 — keep payloads small
+- Switch glasses "views" with `textContainerUpgrade` only; `rebuildPageContainer`
+  flickers
+- Root-page double-tap must call `shutDownPageContainer(1)`
 
 ## Docs
 
-- Overview: https://hub.evenrealities.com/docs/get-started/overview
-- Quickstart: https://hub.evenrealities.com/docs/get-started/quickstart
-- SDK API map: `node_modules/@evenrealities/even_hub_sdk/README.md`
-- Templates: https://github.com/even-realities/evenhub-templates
+- Even Hub overview: <https://hub.evenrealities.com/docs/get-started/overview>
+- Design: [`docs/plans/2026-08-28-glasses-sermon-notes-design.md`](docs/plans/2026-08-28-glasses-sermon-notes-design.md)
+- Implementation plan: [`docs/plans/2026-08-28-sermon-notes-implementation-plan.md`](docs/plans/2026-08-28-sermon-notes-implementation-plan.md)
