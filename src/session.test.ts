@@ -76,12 +76,12 @@ describe('SessionController', () => {
     expect(bridge.text(C.TOPIC)).toBe('Listening...')
   })
 
-  it('renders topic + up to 3 bullets; title overrides topic', async () => {
+  it('topic line shows the current section heading, not the sermon title', async () => {
     const { bridge, ctrl } = harness()
     await ctrl.start()
-    ctrl.handleServerEvent(summary('Acts 2', ['a', 'b', 'c', 'd'], 'When the Wind Came'))
+    ctrl.handleServerEvent(summary('The Spirit comes with power', ['a', 'b', 'c', 'd'], 'When the Wind Came'))
     await settle()
-    expect(bridge.text(C.TOPIC)).toBe('When the Wind Came')
+    expect(bridge.text(C.TOPIC)).toBe('The Spirit comes with power')
     expect(bridge.text(C.BULLET1)).toBe('a')
     expect(bridge.text(C.BULLET3)).toBe('c')
   })
@@ -121,18 +121,22 @@ describe('SessionController', () => {
     expect(shown).toEqual(['A 1:1', 'C 3:3', 'D 4:4', 'E 5:5'])
   })
 
-  it('paginates a long verse across pages', async () => {
+  it('paginates a long verse across pages, then returns to bullets', async () => {
     const { bridge, ctrl } = harness()
     await ctrl.start()
-    const long = Array.from({ length: 120 }, (_, i) => `w${i}`).join(' ')
+    const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ')
     ctrl.handleServerEvent(verse('Ps 119:1-8', long))
     await settle()
-    const page1 = bridge.text(C.VERSE_BODY)
+    const firstPage = bridge.text(C.VERSE_BODY)
+    expect(ctrl.phase).toBe('verse')
+
     await vi.advanceTimersByTimeAsync(4000)
-    const page2 = bridge.text(C.VERSE_BODY)
-    expect(page2).not.toBe(page1)
-    await vi.advanceTimersByTimeAsync(8000)
+    expect(bridge.text(C.VERSE_BODY)).not.toBe(firstPage) // advanced a page
+
+    // run out any remaining pages + the final hold
+    await vi.advanceTimersByTimeAsync(60000)
     expect(ctrl.phase).toBe('listening')
+    expect(bridge.text(C.VERSE_REF)).toBe('')
   })
 
   it('menu: stop requests finish and shows Saving', async () => {

@@ -91,34 +91,52 @@ On WS open the backend opens a Deepgram streaming socket (`nova-3`,
 `smart_format=true`). Client PCM frames pipe straight through. Final segments
 append to `transcript`; interim text is shown in the phone panel only.
 
-### Summarization cadence
+### Summarization model — "current point" + accumulating outline
+
+A sermon is mostly exposition, application and story, not citations. The
+summarizer digests all of it. Two distinct outputs:
+
+- **Live view (glasses)** — the *current point* only: a heading + up to 4
+  bullets covering roughly the last ~2 minutes. It redraws **only when the point
+  materially shifts**, so the lens stays calm between changes.
+- **Notes (after)** — a structured outline: as the preacher moves from one point
+  to the next, each finished section is appended to a growing list. The glasses
+  never show this; it is the record you review later.
 
 Trigger a Claude call when **either** ≥ 25 s elapsed **or** ≥ 400 new
 transcript chars since the last call — never more than one in flight. Prompt:
-system role ("study-note taker for expository preaching") + `lastSummary` for
-continuity + a rolling window of the last ~4 000 tokens of transcript. Strict
-JSON out:
+system role ("study-note taker for expository preaching") + the current section
+so far + a rolling window of the last ~4 000 tokens of transcript. Strict JSON
+out:
 
 ```json
 { "title": "When the Wind Came",
-  "topic": "Acts 2 - the church begins",
-  "bullets": ["…", "…", "…"],
+  "section": {
+    "heading": "The Spirit comes with power",
+    "bullets": ["Wind and fire fill the house", "All are filled and speak in other tongues"],
+    "newSection": false
+  },
   "illustrations": ["The pastor's boyhood barn-roof storm, picturing the Spirit's power."],
   "references": ["Acts 2:38", "first Corinthians thirteen"] }
 ```
 
-- **`title`** — the sermon's stated title if the speaker names one ("I've called
-  this message …", a title read aloud). Omitted until heard; the session locks
-  the first non-empty value and shows it on the glasses topic line.
-- **`topic`** — always present; short label for the current section.
-- **`bullets`** — up to 3 key points so far.
+- **`title`** — the sermon's stated title if the speaker names one. Omitted until
+  heard; the session locks the first non-empty value and shows it as the
+  glasses topic line and the notes `# heading`.
+- **`section.heading`** — short label for the point being made right now.
+- **`section.bullets`** — up to 4, summarizing the current point (~last 2 min).
+- **`section.newSection`** — `true` when this is a different point than the
+  previous call. On a `true`, the session pushes the previous section into the
+  outline and starts a new one.
 - **`illustrations`** — personal stories / anecdotes, each summarized in 1–2
-  sentences **with the point it illustrates**. Accumulated across cycles
+  sentences **with the point it illustrates**. Accumulated across the session
   (near-duplicate suppressed) for the notes.
 - **`references`** — raw reference strings; the scripture engine resolves them.
 
-Invalid JSON → keep `lastSummary`, retry next cycle. Rolling window keeps cost
-bounded regardless of session length.
+The session emits a `summary` event to the client **only when the heading or
+bullets changed** (normalized compare) since the last emit. Invalid JSON → keep
+the current section, retry next cycle. Rolling window keeps cost bounded
+regardless of session length.
 
 ### Scripture resolution
 
@@ -137,11 +155,15 @@ ranges, cross-chapter, clamp overruns). Whole-chapter mentions are topic markers
 ### Notes layout
 
 ```
-# <title, or topic if none given>
-_<topic, shown under the title when both exist>_
+# <title, or first section heading if none given>
 
-## Key points
-- …
+## <section 1 heading>
+- point
+- point
+
+## <section 2 heading>
+- point
+…
 
 ## Illustrations & stories
 - <1–2 sentence summary tying the story to its point>

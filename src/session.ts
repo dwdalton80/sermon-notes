@@ -55,7 +55,9 @@ export class SessionController {
   }
 
   private headline(): string {
-    return this.title ?? this.topic
+    // the topic line follows the current point (section heading); the sermon
+    // title lives in the notes and the phone panel, not the lens
+    return this.topic || this.title || 'Listening...'
   }
 
   private clearTimers(): void {

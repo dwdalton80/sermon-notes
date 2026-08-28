@@ -99,7 +99,7 @@ async function boot() {
   })
 
   feed.onEvent((ev) => {
-    if (ev.type === 'summary') log(`summary: ${ev.title ?? ev.topic}`)
+    if (ev.type === 'summary') log(`summary: ${ev.topic}${ev.title ? ` (${ev.title})` : ''}`)
     else if (ev.type === 'verse') log(`verse: ${ev.ref}`)
     else if (ev.type === 'status') log(`status: ${ev.state}`)
     else if (ev.type === 'notes') {

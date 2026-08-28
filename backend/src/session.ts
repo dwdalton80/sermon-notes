@@ -1,8 +1,8 @@
-import { parseReferences, displayRef, osisId } from './scripture/parse.js'
+import { parseReferences, osisId } from './scripture/parse.js'
 import { resolve, isResolveError } from './scripture/resolve.js'
 import type { ServerEvent } from './events.js'
 import type { SttStream } from './stt.js'
-import type { Summarizer, SummaryJson } from './summarize.js'
+import type { Section, Summarizer, SummaryJson } from './summarize.js'
 
 export interface SessionConfig {
   /** summarize at least this often (ms of wall clock) */
@@ -44,8 +44,10 @@ export class Session {
   private finishing = false // finish() called: stop new audio + mid-stream summaries
   private finished = false // finalize complete: stop accepting transcript
 
-  private lastSummary: SummaryJson | null = null
   private sermonTitle: string | null = null
+  private currentSection: Section | null = null
+  private readonly outline: Section[] = [] // finished sections
+  private lastEmitted: { heading: string; bullets: string } | null = null
   private readonly illustrations: string[] = []
   private readonly seenOsis = new Set<string>()
   private readonly verseCache: Array<Extract<ServerEvent, { type: 'verse' }>> = []
@@ -121,11 +123,9 @@ export class Session {
     try {
       const s = await this.summarizer.run({
         transcript: this.windowTail(),
-        previous: this.lastSummary,
+        currentSection: this.currentSection,
       })
-      this.lastSummary = s
-      if (s.title && !this.sermonTitle) this.sermonTitle = s.title
-      this.mergeIllustrations(s.illustrations)
+      this.applySummary(s)
       await this.ingestReferences(s.references, this.transcript)
     } catch {
       // keep whatever we had
@@ -172,19 +172,9 @@ export class Session {
     try {
       const s = await this.summarizer.run({
         transcript: this.windowTail(),
-        previous: this.lastSummary,
+        currentSection: this.currentSection,
       })
-      this.lastSummary = s
-      if (s.title && !this.sermonTitle) this.sermonTitle = s.title
-      this.mergeIllustrations(s.illustrations)
-      const summaryEvent: Extract<ServerEvent, { type: 'summary' }> = {
-        type: 'summary',
-        topic: s.topic,
-        bullets: s.bullets.slice(0, 3),
-        ...(this.sermonTitle ? { title: this.sermonTitle } : {}),
-      }
-      this.lastSummaryEvent = summaryEvent
-      this.emit(summaryEvent)
+      this.applySummary(s)
 
       const delta = this.transcript.slice(this.parsedUpto)
       this.parsedUpto = this.transcript.length
@@ -197,6 +187,43 @@ export class Session {
 
     // a burst of transcript may have crossed the threshold again
     if (this.dueForSummary()) void this.maybeSummarize()
+  }
+
+  /** Fold one summarizer result into session state and emit a `summary` event
+   *  only when the live view (heading or bullets) has materially changed. */
+  private applySummary(s: SummaryJson): void {
+    if (s.title && !this.sermonTitle) this.sermonTitle = s.title
+    this.mergeIllustrations(s.illustrations)
+
+    if (s.section.newSection && this.currentSection) {
+      this.outline.push(this.currentSection)
+    }
+    this.currentSection = {
+      heading: s.section.heading,
+      bullets: s.section.bullets.slice(0, 4),
+      newSection: false,
+    }
+
+    const bulletsKey = this.currentSection.bullets
+      .map((b) => b.toLowerCase().replace(/\s+/g, ' ').trim())
+      .join(' | ')
+    if (
+      this.lastEmitted &&
+      this.lastEmitted.heading === this.currentSection.heading &&
+      this.lastEmitted.bullets === bulletsKey
+    ) {
+      return // nothing worth redrawing
+    }
+    this.lastEmitted = { heading: this.currentSection.heading, bullets: bulletsKey }
+
+    const ev: Extract<ServerEvent, { type: 'summary' }> = {
+      type: 'summary',
+      topic: this.currentSection.heading,
+      bullets: this.currentSection.bullets,
+      ...(this.sermonTitle ? { title: this.sermonTitle } : {}),
+    }
+    this.lastSummaryEvent = ev
+    this.emit(ev)
   }
 
   /** Parse references from the summarizer's ref strings and from `deltaText`,
@@ -243,15 +270,15 @@ export class Session {
 
   private buildNotes(): string {
     const lines: string[] = []
-    const title = this.sermonTitle?.trim()
-    const topic = this.lastSummary?.topic?.trim() || 'Study notes'
-    lines.push(`# ${title || topic}`, '')
-    if (title && topic && topic !== title) lines.push(`_${topic}_`, '')
+    const sections = [...this.outline]
+    if (this.currentSection) sections.push(this.currentSection)
 
-    const bullets = this.lastSummary?.bullets ?? []
-    if (bullets.length) {
-      lines.push('## Key points', '')
-      for (const b of bullets) lines.push(`- ${b}`)
+    const title = this.sermonTitle?.trim() || sections[0]?.heading || 'Study notes'
+    lines.push(`# ${title}`, '')
+
+    for (const sec of sections) {
+      lines.push(`## ${sec.heading}`, '')
+      for (const b of sec.bullets) lines.push(`- ${b}`)
       lines.push('')
     }
 
