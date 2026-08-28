@@ -14,7 +14,10 @@
     {
       "name": "network",
       "desc": "Sends audio to the notes service and receives the running summary and scripture text.",
-      "whitelist": ["https://REPLACE_WITH_BACKEND_HOST", "wss://REPLACE_WITH_BACKEND_HOST"]
+      "whitelist": [
+        "https://sermon-notes-backend.onrender.com",
+        "wss://sermon-notes-backend.onrender.com"
+      ]
     }
   ],
   "supported_languages": ["en"]
