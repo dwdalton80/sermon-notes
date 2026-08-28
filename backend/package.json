@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "fetch-kjv": "node scripts/fetch-kjv.mjs"
+    "fetch-kjv": "tsx scripts/fetch-kjv.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
