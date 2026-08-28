@@ -114,8 +114,35 @@ function handleEvent(bridge: EvenAppBridge, event: EvenHubEvent) {
     event.textEvent?.eventType ??
     event.sysEvent?.eventType
 
-  if (eventType === OsEventTypeList.LONG_PRESS_EVENT) log('long press')
-  else if (eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) log('long press released')
+  switch (eventType) {
+    case OsEventTypeList.CLICK_EVENT:
+      log('tap')
+      break
+    case OsEventTypeList.SCROLL_TOP_EVENT:
+      log('swipe up')
+      break
+    case OsEventTypeList.SCROLL_BOTTOM_EVENT:
+      log('swipe down')
+      break
+    case OsEventTypeList.DOUBLE_CLICK_EVENT:
+      // Root page: a double-tap must exit via mode 1 (system confirm dialog).
+      // Reviewers reject mode 0 or a custom exit UI on the root page.
+      log('double tap — requesting exit')
+      void bridge.shutDownPageContainer(1)
+      break
+    case OsEventTypeList.LONG_PRESS_EVENT:
+      log('long press')
+      break
+    case OsEventTypeList.LONG_PRESS_RELEASE_EVENT:
+      log('long press released')
+      break
+    case OsEventTypeList.FOREGROUND_ENTER_EVENT:
+      log('contextual menu opened')
+      break
+    case OsEventTypeList.FOREGROUND_EXIT_EVENT:
+      log('contextual menu closed')
+      break
+  }
 }
 
 // ---------------------------------------------------------------------------

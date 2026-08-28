@@ -13,7 +13,10 @@ The `@evenrealities/even_hub_sdk` bridge is how your code talks to the glasses.
 - Creates a start-up page container on the glasses with one text container
 - Registers a first-level contextual menu ("Say hello" / "Say bye") that
   updates the on-glasses text via `textContainerUpgrade`
-- Logs launch source, device status, menu clicks, and long-press events
+- Handles input events: tap, swipe up/down, long press, menu open/close
+- Exits on root-page double-tap via `shutDownPageContainer(1)` (the mode
+  reviewers require — mode 0 / custom exit UI on the root page is rejected)
+- Logs launch source and device status
 - Falls back to a plain status panel when opened in a normal browser tab
   (no bridge), so you can still iterate on layout
 
@@ -71,11 +74,13 @@ Submission & QA guidelines. Bump `version` in `app.json` for each build.
 
 | Field             | Meaning                                                        |
 | ----------------- | ------------------------------------------------------------- |
-| `package_id`      | Reverse-DNS unique id. Change before real submission.         |
+| `package_id`      | Reverse-DNS, lowercase, no hyphens, ≥2 segments. Change before real submission. |
 | `edition`         | Platform edition target (`202601`).                          |
+| `name`            | ≤20 chars and must **not** contain "Even" (case-insensitive). |
+| `version`         | Three-part semver, no prefix/suffix.                         |
 | `min_sdk_version` | Must match the installed `@evenrealities/even_hub_sdk`.       |
-| `min_app_version` | Even App floor; SDK 0.0.14 requires `2.2.9`.                  |
-| `permissions`     | Empty here. Add `network` / `location` entries as needed.     |
+| `min_app_version` | Even App floor; auto-stamped by `evenhub pack` from the SDK (SDK 0.0.14 → `2.2.9`). |
+| `permissions`     | Array of objects. Empty here. `name` ∈ `network`, `location`, `g2-microphone`, `phone-microphone`, `album`, `camera`; each needs a `desc`; `network` needs a `whitelist` of full `https://` origins. Declare only what you use — unused entries are rejected at review. |
 
 ## Hardware constraints to design around
 
