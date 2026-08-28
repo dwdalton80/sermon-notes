@@ -7,13 +7,16 @@
     "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "sim": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr --http -p 5173",
     "pack": "npm run build && evenhub pack app.json dist -o even-hub-demo.ehpk"
   },
   "devDependencies": {
     "typescript": "~6.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.14"
