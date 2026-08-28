@@ -1,4 +1,5 @@
 import { createClaudeSummarizer } from './summarize.claude.js'
+import { createGeminiSummarizer } from './summarize.gemini.js'
 
 /** Incremental summarizer abstraction. Each call digests the recent transcript
  *  and returns the *current point* being made plus any story it heard and the
@@ -87,11 +88,18 @@ export function createMockSummarizer(scripts: Array<SummaryJson | null>): Summar
 }
 
 export function createSummarizer(mockScripts: Array<SummaryJson | null>): Summarizer {
-  if (process.env.SUMMARIZER_PROVIDER === 'claude') {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('SUMMARIZER_PROVIDER=claude but ANTHROPIC_API_KEY is not set')
-    }
-    return createClaudeSummarizer()
+  switch (process.env.SUMMARIZER_PROVIDER) {
+    case 'claude':
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error('SUMMARIZER_PROVIDER=claude but ANTHROPIC_API_KEY is not set')
+      }
+      return createClaudeSummarizer()
+    case 'gemini':
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error('SUMMARIZER_PROVIDER=gemini but GEMINI_API_KEY is not set')
+      }
+      return createGeminiSummarizer()
+    default:
+      return createMockSummarizer(mockScripts)
   }
-  return createMockSummarizer(mockScripts)
 }
