@@ -88,6 +88,15 @@ export class GlassesPage {
     return this.bridge.textContainerUpgrade({ containerID: id, containerName: NAMES[id]!, content })
   }
 
+  /** Keep a bullet to ~one line on the 576px canvas. */
+  private clampBullet(s: string): string {
+    const MAX = 58
+    if (s.length <= MAX) return s
+    const cut = s.slice(0, MAX)
+    const sp = cut.lastIndexOf(' ')
+    return (sp > 30 ? cut.slice(0, sp) : cut).trimEnd() + '…'
+  }
+
   setTopic(text: string): Promise<void> {
     return this.enqueue(async () => {
       await this.up(C.TOPIC, text)
@@ -100,7 +109,8 @@ export class GlassesPage {
       await this.up(C.VERSE_BODY, '')
       await this.up(C.TOPIC, topic)
       for (let i = 0; i < BULLET_IDS.length; i++) {
-        await this.up(BULLET_IDS[i]!, bullets[i] ?? '')
+        const b = bullets[i]
+        await this.up(BULLET_IDS[i]!, b ? this.clampBullet(b) : '')
       }
       this.view = 'bullets'
     })

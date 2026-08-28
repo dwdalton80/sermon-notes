@@ -39,8 +39,9 @@ const SYSTEM = `You take live study notes while a minister teaches (expository p
 You are called repeatedly with a rolling window of the most recent transcript.
 
 Return, for THIS window only:
-- section.heading + section.bullets: the point being made RIGHT NOW. Keep bullets
-  tight and specific to the current argument, not a summary of the whole message.
+- section.heading + section.bullets: the point being made RIGHT NOW. Each bullet
+  is at most 12 words, one idea, no sub-clauses — it has to fit one line on a
+  heads-up display. Specific to the current argument, not the whole message.
 - section.newSection: true only when the speaker has clearly moved on to a new
   point compared with the "current section" you are given.
 - title: only if the speaker actually names the sermon ("I've called this
