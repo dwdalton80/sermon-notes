@@ -61,7 +61,19 @@ function wsBase(host?: string): string {
 }
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
-  console.log(`sermon-notes backend on :${info.port}  (fixture: ${FIXTURE})`)
+  const stt = process.env.STT_PROVIDER === 'deepgram' ? 'deepgram' : 'MOCK'
+  const sum =
+    process.env.SUMMARIZER_PROVIDER === 'gemini'
+      ? 'gemini'
+      : process.env.SUMMARIZER_PROVIDER === 'claude'
+        ? 'claude'
+        : 'MOCK'
+  console.log(`sermon-notes backend on :${info.port}  stt=${stt}  summarizer=${sum}`)
+  if (stt === 'MOCK' || sum === 'MOCK') {
+    console.warn(
+      '[config] a provider is MOCK — set STT_PROVIDER=deepgram / SUMMARIZER_PROVIDER=gemini (+ their API keys) for real output',
+    )
+  }
 })
 
 const wss = new WebSocketServer({ noServer: true })
