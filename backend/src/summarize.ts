@@ -1,3 +1,5 @@
+import { createClaudeSummarizer } from './summarize.claude.js'
+
 /** Incremental summarizer abstraction. Each call digests the recent transcript
  *  and returns the *current point* being made plus any story it heard and the
  *  scripture references. The session turns a run of these into a live "you are
@@ -85,6 +87,11 @@ export function createMockSummarizer(scripts: Array<SummaryJson | null>): Summar
 }
 
 export function createSummarizer(mockScripts: Array<SummaryJson | null>): Summarizer {
-  // Stage 3b: if (process.env.SUMMARIZER_PROVIDER === 'claude') return createClaudeSummarizer()
+  if (process.env.SUMMARIZER_PROVIDER === 'claude') {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('SUMMARIZER_PROVIDER=claude but ANTHROPIC_API_KEY is not set')
+    }
+    return createClaudeSummarizer()
+  }
   return createMockSummarizer(mockScripts)
 }
