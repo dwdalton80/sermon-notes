@@ -1,0 +1,21 @@
+{
+  "name": "even-glasses-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "sim": "evenhub-simulator http://localhost:5173",
+    "qr": "evenhub qr --http -p 5173",
+    "pack": "npm run build && evenhub pack app.json dist -o even-hub-demo.ehpk"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.14"
+  }
+}
