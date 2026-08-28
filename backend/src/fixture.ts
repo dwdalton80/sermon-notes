@@ -8,12 +8,20 @@ export interface Fixture {
   summaries: SummaryJson[]
 }
 
-/** Load a `.jsonl` fixture of interleaved `{seg}` and `{summary}` lines. */
+/** Load a `.jsonl` fixture of interleaved `{seg}` and `{summary}` lines.
+ *  Only used by the mock providers; returns empty if the file is absent
+ *  (production images with real providers don't ship fixtures). */
 export function loadFixture(name: string): Fixture {
   const path = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', `${name}.jsonl`)
   const segments: string[] = []
   const summaries: SummaryJson[] = []
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return { segments, summaries }
+  }
+  for (const line of text.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const row = JSON.parse(trimmed) as { seg?: string; summary?: SummaryJson }

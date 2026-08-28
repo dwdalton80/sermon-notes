@@ -60,7 +60,7 @@ function wsBase(host?: string): string {
   return `${scheme}://${h}`
 }
 
-const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
+const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
   console.log(`sermon-notes backend on :${info.port}  (fixture: ${FIXTURE})`)
 })
 
