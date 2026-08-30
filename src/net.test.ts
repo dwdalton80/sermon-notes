@@ -119,6 +119,27 @@ describe('createWsTransport', () => {
     expect(t.sessionId).toBe('s2')
   })
 
+  it('retries POST /sessions on start, riding out a cold backend', async () => {
+    const { t, sockets, events, fetchFn } = setup({ failSessions: 1 })
+    const started = t.start()
+    await vi.advanceTimersByTimeAsync(3000) // first retry delay
+    await started
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+    expect(sockets).toHaveLength(1)
+    expect(t.sessionId).toBe('s2')
+    expect(events.some((e) => e.type === 'status' && e.state === 'connecting')).toBe(true)
+  })
+
+  it('start rejects once retries are exhausted', async () => {
+    const { t } = setup({ failSessions: 99 })
+    const settled = t.start().then(
+      () => 'ok',
+      () => 'err',
+    )
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(await settled).toBe('err')
+  })
+
   it('stop halts reconnection', async () => {
     const { t, sockets } = setup()
     await t.start()

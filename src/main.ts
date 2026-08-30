@@ -59,19 +59,38 @@ interface Live {
   stop: () => void
 }
 
-async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> {
+const DEMO = new URLSearchParams(location.search).has('demo')
+
+async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live | null> {
   const page = new GlassesPage(adapt(bridge))
 
-  let feed: Feed
+  let ctrl: SessionController | undefined
   let audio: ReturnType<typeof createAudioCapture> | null = null
+
+  const wire = (feed: Feed) => {
+    feed.onEvent((ev) => {
+      if (ev.type === 'summary') panel.setStatus(`${ev.topic}`)
+      else if (ev.type === 'verse') panel.setStatus(`scripture: ${ev.ref}`)
+      else if (ev.type === 'status' && ev.state === 'connecting')
+        panel.setStatus('Connecting to the notes service…')
+      else if (ev.type === 'status' && ev.state === 'reconnecting') panel.setStatus('Reconnecting…')
+      else if (ev.type === 'status' && ev.state === 'stt_down') panel.setStatus('Transcription paused')
+      else if (ev.type === 'notes') panel.showNotes(ev.markdown)
+      ctrl?.handleServerEvent(ev)
+    })
+  }
+
+  let feed: Feed
   const transport = createWsTransport({ baseUrl: BACKEND_URL })
+  wire(transport)
+  panel.setStatus('Connecting to the notes service…')
   try {
     await transport.start()
     audio = createAudioCapture(
       bridge,
       (f) => {
         transport.sendPcm(f)
-        ctrl.onAudioLevel(frameLevel(f))
+        ctrl?.onAudioLevel(frameLevel(f))
       },
       AudioInputSource.Glasses,
     )
@@ -79,12 +98,18 @@ async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> 
     log(`connected to ${BACKEND_URL} (session ${transport.sessionId})`)
   } catch (err) {
     transport.stop()
+    log(`backend unreachable at ${BACKEND_URL} (${err instanceof Error ? err.message : err})`)
+    if (!DEMO) {
+      panel.setPhase('idle')
+      panel.setStatus("Can't reach the notes service — check your connection and press Start again.")
+      return null
+    }
     feed = createFakeFeed()
-    log(`no backend at ${BACKEND_URL} — canned feed (${err instanceof Error ? err.message : err})`)
-    panel.setStatus('No backend — running a demo feed')
+    wire(feed)
+    panel.setStatus('Demo feed (no backend)')
   }
 
-  const ctrl = new SessionController({
+  ctrl = new SessionController({
     page,
     requestFinish: () => {
       feed.finish()
@@ -92,15 +117,6 @@ async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> 
       panel.setPhase('saving')
     },
     onPauseChange: (paused) => void (paused ? audio?.pause() : audio?.resume()),
-  })
-
-  feed.onEvent((ev) => {
-    if (ev.type === 'summary') panel.setStatus(`${ev.topic}`)
-    else if (ev.type === 'verse') panel.setStatus(`scripture: ${ev.ref}`)
-    else if (ev.type === 'status' && ev.state === 'reconnecting') panel.setStatus('Reconnecting…')
-    else if (ev.type === 'status' && ev.state === 'stt_down') panel.setStatus('Transcription paused')
-    else if (ev.type === 'notes') panel.showNotes(ev.markdown)
-    ctrl.handleServerEvent(ev)
   })
 
   await ctrl.start()

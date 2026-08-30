@@ -26,14 +26,19 @@ export interface TransportOpts {
   newSessionAfter?: number
   /** cap on PCM frames buffered while disconnected (~250ms each) */
   maxPendingFrames?: number
+  /** delays (ms) before each POST /sessions attempt in start(); a free-tier
+   *  host can take ~50s to wake, so retry instead of failing immediately */
+  startRetryDelays?: number[]
 }
 
 const DEFAULT_DELAYS = [1000, 2000, 4000, 8000, 15000]
+const DEFAULT_START_RETRY_DELAYS = [0, 3000, 5000, 8000, 10000, 12000, 15000]
 
 export function createWsTransport(opts: TransportOpts): Transport {
   const fetchFn = opts.fetchFn ?? fetch
   const wsFactory = opts.wsFactory ?? ((url: string) => new WebSocket(url) as unknown as WsLike)
   const delays = opts.reconnectDelays ?? DEFAULT_DELAYS
+  const startRetryDelays = opts.startRetryDelays ?? DEFAULT_START_RETRY_DELAYS
   const newSessionAfter = opts.newSessionAfter ?? 4
   const maxPending = opts.maxPendingFrames ?? 240
 
@@ -114,8 +119,21 @@ export function createWsTransport(opts: TransportOpts): Transport {
     },
     async start() {
       stopped = false
-      await createSession()
-      connect()
+      let lastErr: unknown
+      for (let i = 0; i < startRetryDelays.length && !stopped; i++) {
+        if (startRetryDelays[i]! > 0) {
+          emit({ type: 'status', state: 'connecting' })
+          await new Promise((r) => setTimeout(r, startRetryDelays[i]))
+        }
+        try {
+          await createSession()
+          connect()
+          return
+        } catch (err) {
+          lastErr = err
+        }
+      }
+      throw lastErr instanceof Error ? lastErr : new Error('could not reach backend')
     },
     sendPcm(frame) {
       if (ws && wsOpen && !stopped) {
