@@ -56,6 +56,54 @@ h2 {
   color: #ffb27c;
   border: 1px solid #6a4a34;
 }
+.btn.ghost {
+  background: transparent;
+  color: #7cffb2;
+  border: 1px solid #2f5c43;
+  padding: 8px 14px;
+  margin-top: 10px;
+}
+
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  margin: 4px 0 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid #1e2a22;
+  background: #0e1512;
+  color: #d7e5db;
+}
+
+.tags {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 8px 0 4px;
+}
+.tag {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #8a9a8f;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tag input {
+  font: 14px/1.4 system-ui, sans-serif;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #d7e5db;
+  margin-top: 3px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #1e2a22;
+  background: #0b110e;
+}
+.history > li[hidden] {
+  display: none;
+}
 
 .timer {
   font: 20px/1 ui-monospace, SFMono-Regular, Menlo, monospace;

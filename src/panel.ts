@@ -1,5 +1,5 @@
 import { renderMarkdown } from './md.js'
-import { History, formatElapsed, titleFromMarkdown, type SessionRecord } from './history.js'
+import { History, formatElapsed, shareText, titleFromMarkdown, type SessionRecord } from './history.js'
 
 export type PanelPhase = 'idle' | 'running' | 'saving' | 'saved'
 
@@ -25,8 +25,10 @@ export class Panel {
   private startedAt = 0
   private timerId: ReturnType<typeof setInterval> | null = null
   private notesMarkdown: string | null = null
+  private lastRecordId: string | null = null
   private wakeSentinel: { release: () => Promise<void> } | null = null
   private expanded = new Set<string>()
+  private query = ''
 
   constructor(deps: PanelDeps) {
     this.root = deps.root
@@ -53,6 +55,7 @@ export class Panel {
     if (phase === 'running') {
       this.startedAt = Date.now()
       this.notesMarkdown = null
+      this.lastRecordId = null
       this.startTimer()
       void this.acquireWake()
     } else {
@@ -62,22 +65,23 @@ export class Panel {
     this.render()
   }
 
-  /** Called when the backend delivers the finished notes. */
   showNotes(markdown: string): void {
     this.notesMarkdown = markdown
+    const id = `${this.startedAt || Date.now()}`
     const record: SessionRecord = {
-      id: `${this.startedAt || Date.now()}`,
+      id,
       startedAt: this.startedAt || Date.now(),
       endedAt: Date.now(),
       title: titleFromMarkdown(markdown),
       markdown,
     }
     this.history.save(record)
-    this.expanded.add(record.id)
+    this.lastRecordId = id
+    this.expanded.add(id)
     this.setPhase('saved')
   }
 
-  // ---- timer ------------------------------------------------------------
+  // ---- timer ----------------------------------------------------------
 
   private startTimer(): void {
     this.stopTimer()
@@ -96,14 +100,14 @@ export class Panel {
     if (elapsed >= MAX_MS) this.onStop()
   }
 
-  // ---- wake lock (best effort) ----------------------------------------
+  // ---- wake lock (best effort) --------------------------------------
 
   private async acquireWake(): Promise<void> {
     try {
       const wl = (navigator as { wakeLock?: { request: (t: string) => Promise<unknown> } }).wakeLock
       if (wl) this.wakeSentinel = (await wl.request('screen')) as { release: () => Promise<void> }
     } catch {
-      /* not supported / denied — the hint below covers it */
+      /* not supported / denied */
     }
   }
   private async releaseWake(): Promise<void> {
@@ -115,7 +119,22 @@ export class Panel {
     this.wakeSentinel = null
   }
 
-  // ---- render ---------------------------------------------------------
+  // ---- share -------------------------------------------------------
+
+  private share(record: SessionRecord): void {
+    const text = shareText(record)
+    const nav = navigator as { share?: (d: { title?: string; text?: string }) => Promise<void> }
+    if (nav.share) {
+      void nav.share({ title: record.title, text }).catch(() => {})
+      return
+    }
+    const url = `mailto:?subject=${encodeURIComponent(record.title)}&body=${encodeURIComponent(
+      text.slice(0, 1800),
+    )}`
+    window.location.href = url
+  }
+
+  // ---- render ----------------------------------------------------
 
   private render(): void {
     const running = this.phase === 'running' || this.phase === 'saving'
@@ -139,11 +158,12 @@ export class Panel {
               : ''
             : `<p class="hint">Open this in the Even App to run a session.</p>`
         }
-        <p id="pnl-status" class="status">${this.status}</p>
+        <p id="pnl-status" class="status">${escapeText(this.status)}</p>
         ${this.phase === 'saving' ? '<p class="status">Saving notes…</p>' : ''}
         ${
-          this.notesMarkdown
-            ? `<section class="notes">${renderMarkdown(this.notesMarkdown)}</section>`
+          this.notesMarkdown && this.lastRecordId
+            ? `<section class="notes">${renderMarkdown(this.notesMarkdown)}</section>
+               <button class="btn ghost" data-share="${this.lastRecordId}">Share notes</button>`
             : ''
         }
         ${this.renderHistory()}
@@ -151,8 +171,16 @@ export class Panel {
     `
     this.root.querySelector('#pnl-start')?.addEventListener('click', () => this.onStart())
     this.root.querySelector('#pnl-stop')?.addEventListener('click', () => this.onStop())
+
+    const search = this.root.querySelector<HTMLInputElement>('#pnl-search')
+    search?.addEventListener('input', () => {
+      this.query = search.value
+      this.filterHistory()
+    })
+
     for (const el of this.root.querySelectorAll<HTMLElement>('[data-toggle]')) {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('button, input')) return
         const id = el.dataset['toggle']!
         this.expanded.has(id) ? this.expanded.delete(id) : this.expanded.add(id)
         this.render()
@@ -164,6 +192,26 @@ export class Panel {
         this.history.remove(el.dataset['del']!)
         this.render()
       })
+    }
+    for (const el of this.root.querySelectorAll<HTMLElement>('[data-share]')) {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const rec = this.history.list().find((r) => r.id === el.dataset['share'])
+        if (rec) this.share(rec)
+      })
+    }
+    for (const el of this.root.querySelectorAll<HTMLInputElement>('[data-tag]')) {
+      el.addEventListener('change', () => {
+        const [id, field] = el.dataset['tag']!.split('|') as [string, 'speaker' | 'church' | 'series']
+        this.history.update(id, { [field]: el.value.trim() || undefined })
+      })
+    }
+  }
+
+  private filterHistory(): void {
+    const q = this.query.toLowerCase().trim()
+    for (const li of this.root.querySelectorAll<HTMLElement>('.history > li')) {
+      li.hidden = q !== '' && !(li.dataset['hay'] ?? '').includes(q)
     }
   }
 
@@ -179,21 +227,40 @@ export class Panel {
           minute: '2-digit',
         })
         const open = this.expanded.has(r.id)
+        const haystack = [r.title, r.speaker, r.church, r.series, r.markdown]
+          .filter((s): s is string => typeof s === 'string')
+          .join(' ')
+          .toLowerCase()
+        const tag = (field: 'speaker' | 'church' | 'series', label: string) =>
+          `<label class="tag"><span>${label}</span>
+             <input data-tag="${r.id}|${field}" value="${escapeAttr(r[field] ?? '')}" placeholder="—" /></label>`
         return `
-          <li>
+          <li data-hay="${escapeAttr(haystack)}">
             <div class="hrow" data-toggle="${r.id}">
               <span class="htitle">${escapeText(r.title)}</span>
               <span class="hwhen">${when}</span>
               <button class="hdel" data-del="${r.id}" title="Delete">✕</button>
             </div>
-            ${open ? `<section class="notes">${renderMarkdown(r.markdown)}</section>` : ''}
+            ${
+              open
+                ? `<div class="tags">${tag('speaker', 'Speaker')}${tag('church', 'Church')}${tag('series', 'Series')}</div>
+                   <section class="notes">${renderMarkdown(r.markdown)}</section>
+                   <button class="btn ghost" data-share="${r.id}">Share</button>`
+                : ''
+            }
           </li>`
       })
       .join('')
-    return `<h2>History</h2><ul class="history">${rows}</ul>`
+    return `
+      <h2>History</h2>
+      <input id="pnl-search" class="search" type="search" placeholder="Search notes, speaker, church…" value="${escapeAttr(this.query)}" />
+      <ul class="history">${rows}</ul>`
   }
 }
 
 function escapeText(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
+}
+function escapeAttr(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 }

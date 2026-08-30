@@ -23,6 +23,10 @@ export interface SummaryJson {
   /** personal stories / illustrations, each summarized in 1–2 sentences with
    *  the point it makes */
   illustrations?: string[]
+  /** specific things the speaker told listeners to do this week */
+  applications?: string[]
+  /** needs, people, or situations mentioned for prayer */
+  prayerRequests?: string[]
   /** raw reference strings the model spotted, e.g. "Acts 2:38" */
   references: string[]
 }
@@ -69,6 +73,10 @@ export function parseSummaryJson(raw: string): SummaryJson | null {
   if (typeof o['title'] === 'string' && o['title'].trim()) out.title = o['title'].trim()
   const illustrations = strArr(o['illustrations'])
   if (illustrations.length) out.illustrations = illustrations
+  const applications = strArr(o['applications'])
+  if (applications.length) out.applications = applications
+  const prayerRequests = strArr(o['prayerRequests'])
+  if (prayerRequests.length) out.prayerRequests = prayerRequests
   return out
 }
 

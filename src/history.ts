@@ -6,7 +6,13 @@ export interface SessionRecord {
   endedAt: number
   title: string
   markdown: string
+  /** optional tags the user adds afterward */
+  speaker?: string
+  church?: string
+  series?: string
 }
+
+export type SessionTags = Pick<SessionRecord, 'speaker' | 'church' | 'series'>
 
 export interface StorageLike {
   getItem(key: string): string | null
@@ -39,9 +45,35 @@ export class History {
     this.storage.setItem(KEY, JSON.stringify(all))
   }
 
+  update(id: string, patch: Partial<SessionRecord>): void {
+    const all = this.list().map((r) => (r.id === id ? { ...r, ...patch, id: r.id } : r))
+    this.storage.setItem(KEY, JSON.stringify(all))
+  }
+
   remove(id: string): void {
     this.storage.setItem(KEY, JSON.stringify(this.list().filter((r) => r.id !== id)))
   }
+}
+
+/** Case-insensitive substring match across title, tags, and notes text. */
+export function matchesQuery(r: SessionRecord, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [r.title, r.speaker, r.church, r.series, r.markdown]
+    .filter((s): s is string => typeof s === 'string')
+    .some((s) => s.toLowerCase().includes(q))
+}
+
+/** Plain-text rendering for the share sheet / mailto body. */
+export function shareText(r: SessionRecord): string {
+  const meta = [
+    r.speaker && `Speaker: ${r.speaker}`,
+    r.church && `Church: ${r.church}`,
+    r.series && `Series: ${r.series}`,
+    `Date: ${new Date(r.startedAt).toLocaleDateString()}`,
+  ].filter(Boolean)
+  const body = r.markdown.replace(/^#+ /gm, '').replace(/\*\*(.+?)\*\*/g, '$1')
+  return `${meta.join('\n')}\n\n${body}`.trim()
 }
 
 /** "mm:ss" or "h:mm:ss" for a running elapsed time. */

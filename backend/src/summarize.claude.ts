@@ -28,6 +28,14 @@ const SummarySchema = z.object({
     .describe(
       'Personal stories or anecdotes the speaker told, each summarized in 1-2 sentences WITH the point it illustrates. Empty array if none in this window.',
     ),
+  applications: z
+    .array(z.string())
+    .describe(
+      'Specific things the speaker told listeners to DO this week (a practice, commitment, or change). Empty array if none.',
+    ),
+  prayerRequests: z
+    .array(z.string())
+    .describe('People, needs, or situations named for prayer. Empty array if none.'),
   references: z
     .array(z.string())
     .describe(
@@ -48,6 +56,8 @@ Return, for THIS window only:
   message...", a title read aloud). Otherwise null.
 - illustrations: any personal story/anecdote in this window, each 1-2 sentences,
   including what it was illustrating.
+- applications: specific things the speaker told listeners to DO this week.
+- prayerRequests: people, needs, or situations named for prayer.
 - references: every scripture reference mentioned, verbatim as spoken.
 
 Do not invent content. If the window is thin, give a brief heading and one bullet.`
@@ -92,8 +102,13 @@ export function createClaudeSummarizer(): Summarizer {
       }
       const title = parsed.title?.trim()
       if (title) out.title = title
-      const illustrations = parsed.illustrations.map((i) => i.trim()).filter(Boolean)
+      const clean = (a: string[]) => a.map((x) => x.trim()).filter(Boolean)
+      const illustrations = clean(parsed.illustrations)
       if (illustrations.length) out.illustrations = illustrations
+      const applications = clean(parsed.applications)
+      if (applications.length) out.applications = applications
+      const prayerRequests = clean(parsed.prayerRequests)
+      if (prayerRequests.length) out.prayerRequests = prayerRequests
       return out
     },
   }

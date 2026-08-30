@@ -113,6 +113,9 @@ async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> 
 }
 
 async function boot() {
+  // wake a sleeping (Render free-tier) backend while the user reads the panel
+  void fetch(`${BACKEND_URL}/healthz`).catch(() => {})
+
   let bridge: EvenAppBridge | null = null
   try {
     bridge = await Promise.race([

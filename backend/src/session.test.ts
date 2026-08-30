@@ -27,13 +27,11 @@ const S = (
   heading: string,
   bullets: string[],
   references: string[],
-  extra: { title?: string; illustrations?: string[]; newSection?: boolean } = {},
-): SummaryJson => ({
-  section: { heading, bullets, newSection: extra.newSection ?? false },
-  references,
-  ...(extra.title ? { title: extra.title } : {}),
-  ...(extra.illustrations ? { illustrations: extra.illustrations } : {}),
-})
+  extra: Partial<Omit<SummaryJson, 'section' | 'references'>> & { newSection?: boolean } = {},
+): SummaryJson => {
+  const { newSection, ...rest } = extra
+  return { section: { heading, bullets, newSection: newSection ?? false }, references, ...rest }
+}
 
 describe('Session orchestration', () => {
   it('emits summary then new verses, and de-dupes repeated references', async () => {
@@ -125,10 +123,13 @@ describe('Session orchestration', () => {
         S('Peter preaches the risen Christ', ['Repent and be baptized', 'Forgiveness offered'], ['Acts 2:38'], {
           title: 'When the Wind Came',
           illustrations: ['A boyhood barn-roof storm, picturing the Spirit power.'],
+          applications: ['Repent and be baptized this week'],
+          prayerRequests: ['The three thousand new believers'],
         }),
         S('The church is born', ['Grace through faith', 'Three thousand added'], ['Ephesians 2:8'], {
           newSection: true,
           illustrations: ['A boyhood barn-roof storm, picturing the Spirit power.'],
+          applications: ['Repent and be baptized this week'],
         }),
       ],
     )
@@ -147,6 +148,10 @@ describe('Session orchestration', () => {
     expect(md).toContain('## Peter preaches the risen Christ')
     expect(md).toContain('## The church is born')
     expect(md).toContain('## Illustrations & stories')
+    expect(md).toContain('## This week\n\n- Repent and be baptized this week')
+    expect(md).toContain('## Prayer\n\n- The three thousand new believers')
+    // application appears once despite being in both cycles
+    expect(md.split('Repent and be baptized this week').length - 1).toBe(1)
     expect(md).toContain('**Acts 2:38** (KJV)')
     expect(md).toMatch(/Repent, and be baptized/i)
     // one illustration despite appearing in both cycles

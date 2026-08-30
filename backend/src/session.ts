@@ -49,6 +49,8 @@ export class Session {
   private readonly outline: Section[] = [] // finished sections
   private lastEmitted: { heading: string; bullets: string } | null = null
   private readonly illustrations: string[] = []
+  private readonly applications: string[] = []
+  private readonly prayerRequests: string[] = []
   private readonly seenOsis = new Set<string>()
   private readonly verseCache: Array<Extract<ServerEvent, { type: 'verse' }>> = []
   private lastSummaryEvent: Extract<ServerEvent, { type: 'summary' }> | null = null
@@ -196,7 +198,9 @@ export class Session {
    *  only when the live view (heading or bullets) has materially changed. */
   private applySummary(s: SummaryJson): void {
     if (s.title && !this.sermonTitle) this.sermonTitle = s.title
-    this.mergeIllustrations(s.illustrations)
+    this.mergeList(this.illustrations, s.illustrations)
+    this.mergeList(this.applications, s.applications)
+    this.mergeList(this.prayerRequests, s.prayerRequests)
 
     if (s.section.newSection && this.currentSection) {
       this.outline.push(this.currentSection)
@@ -259,15 +263,15 @@ export class Session {
     }
   }
 
-  /** Accumulate illustration summaries across cycles, skipping near-duplicates. */
-  private mergeIllustrations(items: string[] | undefined): void {
+  /** Accumulate free-text items across cycles, skipping near-duplicates. */
+  private mergeList(target: string[], items: string[] | undefined): void {
     if (!items) return
     const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 40)
     for (const item of items) {
       const t = item.trim()
       if (!t) continue
-      if (this.illustrations.some((e) => key(e) === key(t))) continue
-      this.illustrations.push(t)
+      if (target.some((e) => key(e) === key(t))) continue
+      target.push(t)
     }
   }
 
@@ -294,6 +298,18 @@ export class Session {
     if (this.illustrations.length) {
       lines.push('## Illustrations & stories', '')
       for (const i of this.illustrations) lines.push(`- ${i}`)
+      lines.push('')
+    }
+
+    if (this.applications.length) {
+      lines.push('## This week', '')
+      for (const a of this.applications) lines.push(`- ${a}`)
+      lines.push('')
+    }
+
+    if (this.prayerRequests.length) {
+      lines.push('## Prayer', '')
+      for (const p of this.prayerRequests) lines.push(`- ${p}`)
       lines.push('')
     }
 

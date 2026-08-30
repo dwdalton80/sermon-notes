@@ -20,6 +20,9 @@ Return, for THIS window only:
   message...", a title read out). Otherwise an empty string.
 - illustrations: any personal story/anecdote in this window, each 1-2 sentences,
   including what it was illustrating. Empty array if none.
+- applications: specific things the speaker told listeners to DO this week (a
+  practice, a commitment, a change). Empty array if none.
+- prayerRequests: people, needs, or situations named for prayer. Empty array if none.
 - references: every scripture reference mentioned, verbatim as spoken. Empty
   array if none.
 
@@ -40,16 +43,27 @@ const RESPONSE_SCHEMA = {
       propertyOrdering: ['heading', 'bullets', 'newSection'],
     },
     illustrations: { type: 'array', items: { type: 'string' } },
+    applications: { type: 'array', items: { type: 'string' } },
+    prayerRequests: { type: 'array', items: { type: 'string' } },
     references: { type: 'array', items: { type: 'string' } },
   },
-  required: ['title', 'section', 'illustrations', 'references'],
-  propertyOrdering: ['title', 'section', 'illustrations', 'references'],
+  required: ['title', 'section', 'illustrations', 'applications', 'prayerRequests', 'references'],
+  propertyOrdering: [
+    'title',
+    'section',
+    'illustrations',
+    'applications',
+    'prayerRequests',
+    'references',
+  ],
 } as const
 
 interface RawSummary {
   title?: unknown
   section?: { heading?: unknown; bullets?: unknown; newSection?: unknown }
   illustrations?: unknown
+  applications?: unknown
+  prayerRequests?: unknown
   references?: unknown
 }
 
@@ -106,6 +120,10 @@ export function createGeminiSummarizer(): Summarizer {
       if (title) out.title = title
       const illustrations = strArr(raw.illustrations)
       if (illustrations.length) out.illustrations = illustrations
+      const applications = strArr(raw.applications)
+      if (applications.length) out.applications = applications
+      const prayerRequests = strArr(raw.prayerRequests)
+      if (prayerRequests.length) out.prayerRequests = prayerRequests
       return out
     },
   }
