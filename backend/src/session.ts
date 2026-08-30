@@ -1,4 +1,5 @@
-import { parseReferences, osisId } from './scripture/parse.js'
+import { parseReferences, osisId, type ParseContext } from './scripture/parse.js'
+import { BOOK_NAMES } from './scripture/books.js'
 import { resolve, isResolveError } from './scripture/resolve.js'
 import type { ServerEvent } from './events.js'
 import type { SttStream } from './stt.js'
@@ -52,6 +53,9 @@ export class Session {
   private readonly applications: string[] = []
   private readonly prayerRequests: string[] = []
   private readonly seenOsis = new Set<string>()
+  // carries the last-named book across summarize cycles so a later bare
+  // "chapter 24 verse 10" still resolves
+  private readonly parseCtx: ParseContext = {}
   private readonly verseCache: Array<Extract<ServerEvent, { type: 'verse' }>> = []
   private lastSummaryEvent: Extract<ServerEvent, { type: 'summary' }> | null = null
 
@@ -198,9 +202,9 @@ export class Session {
    *  only when the live view (heading or bullets) has materially changed. */
   private applySummary(s: SummaryJson): void {
     if (s.title && !this.sermonTitle) this.sermonTitle = s.title
-    this.mergeList(this.illustrations, s.illustrations)
-    this.mergeList(this.applications, s.applications)
-    this.mergeList(this.prayerRequests, s.prayerRequests)
+    this.mergeList(this.illustrations, s.illustrations, 6)
+    this.mergeList(this.applications, s.applications, 5)
+    this.mergeList(this.prayerRequests, s.prayerRequests, 6)
 
     if (s.section.newSection && this.currentSection) {
       this.outline.push(this.currentSection)
@@ -233,13 +237,56 @@ export class Session {
     this.emit(ev)
   }
 
+  /** Numbers (digits or number-words, 1..176) actually spoken in the whole
+   *  transcript — used to sanity-check references the summarizer proposes. */
+  private transcriptNumbers(): Set<number> {
+    const s = this.transcript.toLowerCase()
+    const out = new Set<number>()
+    for (const m of s.matchAll(/\d{1,3}/g)) {
+      const n = Number(m[0])
+      if (n >= 1 && n <= 176) out.add(n)
+    }
+    const W: Record<string, number> = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+      ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+      sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+      twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+    }
+    const toks = s.split(/[^a-z]+/)
+    for (let i = 0; i < toks.length; i++) {
+      const a = W[toks[i]!]
+      if (a == null) continue
+      const b = W[toks[i + 1]!]
+      if (a >= 20 && a % 10 === 0 && b != null && b < 10) {
+        out.add(a + b)
+        i++
+      } else out.add(a)
+    }
+    return out
+  }
+
+  /** A summarizer-proposed reference is trusted only if the passage's book was
+   *  named in the transcript, or both its chapter and verse numbers were spoken.
+   *  Blocks thematically-associated verses the model sometimes volunteers. */
+  private corroborated(ref: ReturnType<typeof parseReferences>[number], nums: Set<number>): boolean {
+    const word = (BOOK_NAMES[ref.book] ?? '').replace(/^\d+\s+/, '').toLowerCase()
+    if (word && this.transcript.toLowerCase().includes(word)) return true
+    return nums.has(ref.startChapter) && (ref.startVerse == null || nums.has(ref.startVerse))
+  }
+
   /** Parse references from the summarizer's ref strings and from `deltaText`,
    *  resolve any not seen before, and emit `verse` events (capped per cycle). */
   private async ingestReferences(refStrings: string[], deltaText: string): Promise<void> {
-    const candidates = [
-      ...refStrings.flatMap((r) => parseReferences(r)),
-      ...parseReferences(deltaText),
-    ]
+    // explicit refs from the summarizer first — they seed the book context that
+    // a bare "chapter 24 verse 10" later in deltaText resolves against
+    const nums = this.transcriptNumbers()
+    const fromSummary = refStrings
+      .flatMap((r) => parseReferences(r, this.parseCtx))
+      .filter((r) => this.corroborated(r, nums))
+    for (const r of fromSummary) if (r.book) this.parseCtx.lastRef = r
+    const candidates = [...fromSummary, ...parseReferences(deltaText, this.parseCtx)]
+    for (const r of candidates) if (r.book) this.parseCtx.lastRef = r
+
     let emitted = 0
     for (const ref of candidates) {
       // whole-chapter mentions ("Acts chapter 2") are topic markers, not verse
@@ -264,33 +311,70 @@ export class Session {
   }
 
   /** Accumulate free-text items across cycles, skipping near-duplicates. The
-   *  summarizer often re-phrases the same story/point across windows, so match
-   *  on content-word overlap (Jaccard) rather than an exact/prefix key. */
-  private mergeList(target: string[], items: string[] | undefined): void {
+   *  summarizer re-phrases the same story/point across windows, so two items
+   *  collapse when they normalize to the same string, when they retell an event
+   *  about the same named people, when the shorter one's content words are
+   *  almost all inside the longer (an elaboration), or when a long shared core
+   *  survives a reword. Filler words are dropped first so "forgive someone this
+   *  week" and "serve someone this week" stay distinct. `cap` bounds the list —
+   *  a blunt backstop for when the model keeps rewording past what the fuzzy
+   *  match catches. */
+  private mergeList(target: string[], items: string[] | undefined, cap = Infinity): void {
     if (!items) return
+    const STOP = new Set([
+      'this', 'that', 'with', 'your', 'from', 'then', 'they', 'them', 'will', 'have',
+      'been', 'what', 'when', 'were', 'would', 'could', 'should', 'about', 'into',
+      'than', 'week', 'their', 'there', 'these', 'those', 'also', 'just',
+    ])
+    // capitalized words that aren't names — sentence starters, deity, generic
+    // scripture terms — so the "same named people" test keys on David/Nathan/Gad
+    const NAME_STOP = new Set(
+      'The This That These Those Then There They Them Their When Where While With What Who Whom Why How After Before Because But And For Nor Yet So His Her Him She He We You Now Also Here Then However Therefore Thus God Lord Jesus Christ Spirit Holy Father Son Bible Scripture Scriptures Gospel Word Testament Psalm Psalms Today Sunday'.split(
+        ' ',
+      ),
+    )
+    const norm = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
     const tokens = (s: string) =>
       new Set(
-        s
-          .toLowerCase()
-          .replace(/[^a-z0-9 ]/g, ' ')
-          .split(/\s+/)
-          .filter((w) => w.length >= 4),
+        norm(s)
+          .split(' ')
+          .filter((w) => w.length >= 4 && !STOP.has(w)),
       )
+    const names = (s: string) =>
+      new Set((s.match(/\b[A-Z][a-z]{2,}\b/g) ?? []).filter((w) => !NAME_STOP.has(w)))
     const near = (a: string, b: string): boolean => {
+      if (norm(a) === norm(b)) return true
+      // same event retold: both name >= 2 of the same people and one name-set
+      // sits inside the other (Bathsheba added, say)
+      const na = names(a)
+      const nb = names(b)
+      const nsmall = Math.min(na.size, nb.size)
+      if (nsmall >= 2) {
+        let ni = 0
+        for (const w of na) if (nb.has(w)) ni++
+        if (ni === nsmall) return true
+      }
       const ta = tokens(a)
       const tb = tokens(b)
-      if (ta.size === 0 || tb.size === 0) return a.toLowerCase() === b.toLowerCase()
+      const small = Math.min(ta.size, tb.size)
+      if (small === 0) return false
       let inter = 0
       for (const w of ta) if (tb.has(w)) inter++
-      // enough shared content words AND one largely contained in the other —
-      // the min-size ratio catches a rephrase; the count guard protects short
-      // one-line items (e.g. "forgive someone" vs "serve someone")
-      return inter >= 4 && inter / Math.min(ta.size, tb.size) >= 0.7
+      const containment = inter / small
+      // the shorter item lives almost entirely inside the longer one...
+      if (containment >= 0.85) return true
+      // ...or both are long and share a big reworded core
+      return inter >= 5 && containment >= 0.7
     }
     for (const item of items) {
       const t = item.trim()
       if (!t) continue
       if (target.some((e) => near(e, t))) continue
+      if (target.length >= cap) continue
       target.push(t)
     }
   }

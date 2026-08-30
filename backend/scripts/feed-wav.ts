@@ -50,6 +50,11 @@ function pcmFromWav(buf: Buffer): Buffer {
 
 const pcm = pcmFromWav(readFileSync(file))
 const FRAME = 16000 * 2 * 0.25 // 250 ms of s16le mono
+// FEED_SPEED=3 sends frames 3x faster than real time (e.g. to replay a long
+// recording quickly). Summaries are mostly char-threshold driven so the shape
+// of the output holds up; keep it <=6 so Deepgram's stream stays happy.
+const SPEED = Math.max(1, Number(process.env.FEED_SPEED ?? 1))
+const FRAME_MS = 250 / SPEED
 
 const { sessionId, wsUrl } = await (await fetch(`${base}/sessions`, { method: 'POST' })).json()
 console.log(`session ${sessionId}`)
@@ -64,14 +69,14 @@ ws.on('message', (d) => {
 })
 
 ws.on('open', async () => {
-  console.log(`streaming ${(pcm.length / (16000 * 2)).toFixed(1)}s of audio...`)
+  console.log(`streaming ${(pcm.length / (16000 * 2)).toFixed(1)}s of audio at ${SPEED}x...`)
   for (let i = 0; i < pcm.length; i += FRAME) {
     ws.send(pcm.subarray(i, Math.min(i + FRAME, pcm.length)))
-    await new Promise((r) => setTimeout(r, 250))
+    await new Promise((r) => setTimeout(r, FRAME_MS))
   }
   console.log('...audio sent, finishing')
   ws.send(JSON.stringify({ type: 'finish' }))
-  await new Promise((r) => setTimeout(r, 15000))
+  await new Promise((r) => setTimeout(r, 20000))
   ws.close()
   process.exit(0)
 })

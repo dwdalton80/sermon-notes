@@ -14,17 +14,29 @@ Return, for THIS window only:
 - section.heading + section.bullets: the point being made RIGHT NOW. Each bullet
   is at most 12 words, one idea, no sub-clauses — it has to fit one line on a
   heads-up display. Specific to the current argument, not the whole message.
-- section.newSection: true only when the speaker has clearly moved to a new point
-  compared with the "current section" you are given.
-- title: the sermon title only if the speaker names it aloud ("I've called this
-  message...", a title read out). Otherwise an empty string.
-- illustrations: any personal story/anecdote in this window, each 1-2 sentences,
-  including what it was illustrating. Empty array if none.
-- applications: specific things the speaker told listeners to DO this week (a
-  practice, a commitment, a change). Empty array if none.
+  When the speaker numbers or names a point ("point one", "first", "secondly"),
+  use the SUBSTANCE of that point as the heading in the speaker's own words
+  (e.g. "Confess your sin of pride"), never the bare label ("point one").
+  Material before the first point is one section headed "Introduction".
+- section.newSection: keep this FALSE and keep the SAME heading for as long as the
+  speaker is still developing one point — stories, sub-examples, side comments and
+  tangents all belong to the current point. Set it TRUE only on an explicit move:
+  a new numbered/named point, "secondly", "that brings me to", "moving on". A new
+  Bible story alone is NOT a new section.
+- title: the overall subject of the whole message, set ONCE. Take it from a named
+  title ("I've called this message...") OR from the speaker stating what today's
+  message is about ("today, how to fix our pride problem"). Otherwise "".
+- illustrations: a story/anecdote/example, each 1-2 sentences, including what it
+  illustrates. Only the FIRST time it appears — if the current section already
+  covers it, return []. Empty array if none.
+- applications: specific things the speaker told listeners to DO (a practice, a
+  commitment, a change), first appearance only. Empty array if none.
 - prayerRequests: people, needs, or situations named for prayer. Empty array if none.
-- references: every scripture reference mentioned, verbatim as spoken. Empty
-  array if none.
+- references: ONLY passages the speaker actually cites in this window — by name,
+  or by chapter and verse. Format as "Book Chapter:Verse" (e.g. "2 Samuel 24:10").
+  If they give only chapter and verse ("chapter 24, verse 10", "chapter 12 number
+  13"), use the book of the passage under discussion. NEVER add a verse just
+  because it is on the same theme or comes to mind. Empty array if none.
 
 Do not invent content. If the window is thin, give a brief heading and one bullet.`
 

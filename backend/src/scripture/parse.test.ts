@@ -55,6 +55,10 @@ describe('parseReferences', () => {
     ['Genesis one one', [['Gen', 1, null, 1, null]]],
     // number words with no book are not a reference
     ['two verse eight', []],
+    // book-less "chapter N verse M" with no context anywhere is not a reference
+    ['turn to chapter 12 number 13', []],
+    // spoken "number" as the verse separator, with a book
+    ['Second Samuel chapter 12 number 13', [['2Sam', 12, 13, 12, 13]]],
     // negatives
     ['it is 5 degrees outside', []],
     ['the meeting starts at 3:16 pm', []],
@@ -80,6 +84,23 @@ describe('parseReferences', () => {
     expect(refs.map(proj)).toEqual([
       ['John', 3, 16, 3, 16],
       ['John', 3, 17, 3, 17],
+    ])
+  })
+
+  it('resolves book-less "chapter N verse M" against an earlier book', () => {
+    const refs = parseReferences(
+      'Read Second Samuel 12:13. David said to Nathan. Now in verse number 10 of chapter 24, Gad came to him.',
+    )
+    expect(refs.map(proj)).toEqual([
+      ['2Sam', 12, 13, 12, 13],
+      ['2Sam', 24, 10, 24, 10],
+    ])
+  })
+
+  it('resolves book-less "chapter N, verse M" against ctx.lastRef', () => {
+    const ctx = { lastRef: parseReferences('2 Samuel 12:13')[0]! }
+    expect(parseReferences('now look at chapter 24, verse 10', ctx).map(proj)).toEqual([
+      ['2Sam', 24, 10, 24, 10],
     ])
   })
 

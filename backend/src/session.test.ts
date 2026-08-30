@@ -182,6 +182,78 @@ describe('Session orchestration', () => {
     expect(md.match(/grandfather farm/g)?.length).toBe(1)
   })
 
+  it('collapses identical and elaborated applications, keeps distinct ones', async () => {
+    const { session, events } = harness(
+      ['one', 'two', 'three'],
+      [
+        S('P', ['x'], [], { applications: ['Confess your sin of pride to God.'] }),
+        S('P', ['x'], [], {
+          applications: [
+            'Confess your sin of pride to God.', // byte-identical
+            'Confess your sin of pride and agree with God about it.', // elaboration
+            'Forgive someone who wronged you this week.', // genuinely different
+          ],
+        }),
+        S('P', ['x'], [], { applications: ['Serve someone quietly this week.'] }), // different
+      ],
+    )
+    for (let i = 0; i < 3; i++) {
+      session.pushPcm(frame)
+      await flush()
+    }
+    await session.finish()
+    const md =
+      (events.find((e) => e.type === 'notes') as { markdown: string } | undefined)?.markdown ?? ''
+    const week = md.slice(md.indexOf('## This week'))
+    expect(week.match(/Confess your sin of pride/g)?.length).toBe(1)
+    expect(week).toContain('Forgive someone')
+    expect(week).toContain('Serve someone')
+  })
+
+  it('collapses re-told illustrations about the same named people', async () => {
+    const tellings = [
+      'Nathan told David a story about a man who took a lamb, then revealed David was that man.',
+      'David committed adultery and Nathan confronted him, and David confessed his sin.',
+      'Nathan confronted David about Bathsheba, and David simply said, I have sinned against the Lord.',
+      'Gad confronted David after he proudly numbered the people, and David confessed he had sinned greatly.',
+    ]
+    const { session, events } = harness(
+      tellings.map((_, i) => `line ${i}`),
+      tellings.map((t, i) => S('Confess your sin of pride', ['x'], [], { illustrations: [t] })),
+    )
+    for (let i = 0; i < tellings.length; i++) {
+      session.pushPcm(frame)
+      await flush()
+    }
+    await session.finish()
+    const md =
+      (events.find((e) => e.type === 'notes') as { markdown: string } | undefined)?.markdown ?? ''
+    const from = md.indexOf('## Illustrations')
+    const to = md.indexOf('## Scripture references')
+    const ill = md.slice(from, to === -1 ? undefined : to)
+    // the three Nathan/David tellings collapse to one; the Gad telling stays
+    expect((ill.match(/^- /gm) ?? []).length).toBe(2)
+    expect(ill).toContain('Nathan')
+    expect(ill).toContain('Gad')
+  })
+
+  it('drops summarizer references not backed by the transcript', async () => {
+    const { session, events } = harness(
+      ['Turn to chapter 12 verse 13 as David speaks to Nathan.', 'And God is love, He cares for us.'],
+      [
+        S('Confession', ['x'], ['2 Samuel 12:13', '1 John 4:8'], { title: 'Pride' }),
+        S('Confession', ['x'], ['2 Samuel 12:13'], {}),
+      ],
+    )
+    session.pushPcm(frame)
+    await flush()
+    session.pushPcm(frame)
+    await flush()
+    await session.finish()
+    const verses = events.filter((e): e is Extract<ServerEvent, { type: 'verse' }> => e.type === 'verse')
+    expect(verses.map((v) => v.ref)).toEqual(['2 Samuel 12:13']) // 1 John 4:8 filtered
+  })
+
   it('carries the sermon title into the first summary event', async () => {
     const { session, events } = harness(
       ['Acts 2 verse 38 says repent.'],

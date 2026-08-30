@@ -23,8 +23,12 @@ const NUMWORD = String.raw`(?:(?:${U9})\b[\s-]+hundred\b(?:[\s-]+(?:and[\s-]+)?$
 // a number, as digits or words
 const NUM = String.raw`(?:\d+|${NUMWORD})`
 
-// verse separator: ":" / "." (no spaces) / the words "verse(s)" / "v."
-const SEP = String.raw`(?:\s*:\s*|\.(?=\d)|\s+verses?\s+|\s+v\.?\s+)`
+// verse separator: ":" / "." (no spaces) / "verse(s)" / "v." / spoken "number"
+// ("Genesis chapter one number three" for 1:3, common from the pulpit)
+const SEP = String.raw`(?:\s*:\s*|\.(?=\d)|\s+verses?\s+|\s+v\.?\s+|\s+(?:numbers?|nos?\.?)\s+)`
+// looser connector for book-less "chapter N verse M" forms: also allows a comma
+// and a bare number ("chapter 24, verse 10" / "chapter 24, 10" / "chapter 24:10")
+const VCON = String.raw`(?:\s*[,:.]?\s*(?:verses?|vs?\.?|numbers?|nos?\.?|#)\s+|\s*:\s*|\s*,\s*)`
 // range separator: hyphen / en / em dash / "through" / "to" / "thru"
 const DASH = String.raw`(?:\s*[-–—]\s*|\s+(?:through|thru|to)\s+)`
 
@@ -55,9 +59,25 @@ const CONT = new RegExp(
   'yi',
 )
 
-// bare verse pointer, e.g. "verse 12" / "verses 3-5" / "vv. 3-5"
+// bare verse pointer, e.g. "verse 12" / "verses 3-5" / "vv. 3-5" / "verse number 12"
 const BARE = new RegExp(
-  String.raw`(?<![A-Za-z])(?:verses?|vv?\.?)\s+(${NUM})(?:` + DASH + String.raw`(${NUM}))?`,
+  String.raw`(?<![A-Za-z])(?:verses?|vv?\.?)\s+(?:(?:numbers?|nos?\.?)\s+)?(${NUM})(?:` +
+    DASH +
+    String.raw`(${NUM}))?`,
+  'gi',
+)
+
+// book-less chapter+verse, resolved against the last-seen book (earlier in the
+// text, or ctx.lastRef). Two spoken orders:
+//   "chapter 24 verse 10" / "chapter 12 number 13" / "chapter 24, 10"
+//   "verse 10 of chapter 24" / "verse number 10 of chapter 24"
+const CHVS = new RegExp(
+  String.raw`(?<![A-Za-z])(?:` +
+    String.raw`chapters?\s+(${NUM})` +
+    VCON +
+    String.raw`(${NUM})` + // g1 chapter, g2 verse
+    String.raw`|verses?\s+(?:(?:numbers?|nos?\.?)\s+)?(${NUM})\s+of\s+chapters?\s+(${NUM})` + // g3 verse, g4 chapter
+    String.raw`)`,
   'gi',
 )
 
@@ -194,6 +214,26 @@ export function parseReferences(text: string, ctx: ParseContext = {}): Ref[] {
       PRIMARY.lastIndex = CONT.lastIndex
       CONT.lastIndex = PRIMARY.lastIndex
     }
+  }
+
+  // book-less "chapter N verse M" / "verse M of chapter N" — needs a book from
+  // earlier in the text or ctx
+  CHVS.lastIndex = 0
+  while ((m = CHVS.exec(text))) {
+    const idx = m.index
+    if (covered.some(([s, e]) => idx >= s && idx < e)) continue
+    const chap = toInt(m[1] ?? m[4])
+    const verse = toInt(m[2] ?? m[3])
+    if (chap == null || verse == null) continue
+    let book: string | undefined
+    for (let i = 0; i < out.length; i++) if (spans[i]! <= idx) book = out[i]!.book
+    book ??= ctx.lastRef?.book
+    if (!book) continue
+    push(
+      { raw: m[0], book, startChapter: chap, startVerse: verse, endChapter: chap, endVerse: verse },
+      CHVS.lastIndex,
+    )
+    covered.push([idx, CHVS.lastIndex])
   }
 
   // bare "verse N" — needs a book+chapter from earlier in the text or ctx
