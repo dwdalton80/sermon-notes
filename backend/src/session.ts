@@ -263,14 +263,34 @@ export class Session {
     }
   }
 
-  /** Accumulate free-text items across cycles, skipping near-duplicates. */
+  /** Accumulate free-text items across cycles, skipping near-duplicates. The
+   *  summarizer often re-phrases the same story/point across windows, so match
+   *  on content-word overlap (Jaccard) rather than an exact/prefix key. */
   private mergeList(target: string[], items: string[] | undefined): void {
     if (!items) return
-    const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 40)
+    const tokens = (s: string) =>
+      new Set(
+        s
+          .toLowerCase()
+          .replace(/[^a-z0-9 ]/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length >= 4),
+      )
+    const near = (a: string, b: string): boolean => {
+      const ta = tokens(a)
+      const tb = tokens(b)
+      if (ta.size === 0 || tb.size === 0) return a.toLowerCase() === b.toLowerCase()
+      let inter = 0
+      for (const w of ta) if (tb.has(w)) inter++
+      // enough shared content words AND one largely contained in the other —
+      // the min-size ratio catches a rephrase; the count guard protects short
+      // one-line items (e.g. "forgive someone" vs "serve someone")
+      return inter >= 4 && inter / Math.min(ta.size, tb.size) >= 0.7
+    }
     for (const item of items) {
       const t = item.trim()
       if (!t) continue
-      if (target.some((e) => key(e) === key(t))) continue
+      if (target.some((e) => near(e, t))) continue
       target.push(t)
     }
   }

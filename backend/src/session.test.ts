@@ -158,6 +158,30 @@ describe('Session orchestration', () => {
     expect(md.split('barn-roof storm').length - 1).toBe(1)
   })
 
+  it('collapses re-phrased illustrations across cycles', async () => {
+    const a =
+      'When the minister was a boy on his grandfather farm a violent storm tore the roof off the barn, showing the power of the wind.'
+    const b =
+      'The speaker recalled a childhood storm on his grandfather farm where the wind tore the roof off the barn, showing the power of the wind.'
+    const { session, events } = harness(
+      ['line one here about acts', 'line two here about grace'],
+      [
+        S('Point one', ['a bullet'], [], { illustrations: [a] }),
+        S('Point two', ['b bullet'], [], { newSection: true, illustrations: [b] }),
+      ],
+    )
+    session.pushPcm(frame)
+    await flush()
+    session.pushPcm(frame)
+    await flush()
+    await session.finish()
+    const md =
+      events.find((e) => e.type === 'notes')?.type === 'notes'
+        ? (events.find((e) => e.type === 'notes') as { markdown: string }).markdown
+        : ''
+    expect(md.match(/grandfather farm/g)?.length).toBe(1)
+  })
+
   it('carries the sermon title into the first summary event', async () => {
     const { session, events } = harness(
       ['Acts 2 verse 38 says repent.'],
