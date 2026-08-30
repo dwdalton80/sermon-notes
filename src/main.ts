@@ -17,7 +17,7 @@ import { SessionController } from './session.js'
 import { createFakeFeed } from './feed.js'
 import type { Feed } from './feed.js'
 import { createWsTransport } from './net.js'
-import { createAudioCapture } from './audio.js'
+import { createAudioCapture, frameLevel } from './audio.js'
 import { Panel } from './panel.js'
 import { History } from './history.js'
 
@@ -67,7 +67,14 @@ async function startSession(bridge: EvenAppBridge, panel: Panel): Promise<Live> 
   const transport = createWsTransport({ baseUrl: BACKEND_URL })
   try {
     await transport.start()
-    audio = createAudioCapture(bridge, (f) => transport.sendPcm(f), AudioInputSource.Glasses)
+    audio = createAudioCapture(
+      bridge,
+      (f) => {
+        transport.sendPcm(f)
+        ctrl.onAudioLevel(frameLevel(f))
+      },
+      AudioInputSource.Glasses,
+    )
     feed = transport
     log(`connected to ${BACKEND_URL} (session ${transport.sessionId})`)
   } catch (err) {

@@ -8,6 +8,26 @@ const BYTES_PER_SAMPLE = 2
 const FRAME_MS = 250
 export const FRAME_BYTES = (SAMPLE_RATE * BYTES_PER_SAMPLE * FRAME_MS) / 1000 // 8000
 
+/** RMS loudness of an s16le mono frame, mapped to 0..1 on a dBFS curve for a
+ *  meter: ~-60 dBFS (room tone) reads empty, ~-20 dBFS (clear speech) reads
+ *  full. Values between clamp linearly. */
+export function frameLevel(frame: Uint8Array): number {
+  const n = frame.length >> 1
+  if (n < 1) return 0
+  const view = new DataView(frame.buffer, frame.byteOffset, n * 2)
+  let sumSq = 0
+  for (let i = 0; i < n; i++) {
+    const s = view.getInt16(i * 2, true) / 32768
+    sumSq += s * s
+  }
+  const rms = Math.sqrt(sumSq / n)
+  if (rms <= 0) return 0
+  const db = 20 * Math.log10(rms)
+  const LOW = -60
+  const HIGH = -20
+  return Math.max(0, Math.min(1, (db - LOW) / (HIGH - LOW)))
+}
+
 /** Accumulates arbitrary byte chunks and emits fixed-size frames. */
 export class FrameBatcher {
   private buf = new Uint8Array(0)

@@ -6,6 +6,7 @@ import type { ServerEvent } from './events.js'
 
 class FakeBridge implements GlassesBridge {
   containers = new Map<number, string>()
+  upgrades: Array<[number, string]> = []
   created = 0
   rebuilt = 0
   shutdownMode: number | null = null
@@ -22,6 +23,7 @@ class FakeBridge implements GlassesBridge {
   }
   async textContainerUpgrade(c: TextUpgrade): Promise<boolean> {
     this.containers.set(c.containerID, c.content)
+    this.upgrades.push([c.containerID, c.content])
     return true
   }
   async shutDownPageContainer(mode?: number): Promise<boolean> {
@@ -177,6 +179,50 @@ describe('SessionController', () => {
     await settle()
     expect(ctrl.phase).toBe('verse')
     expect(bridge.text(C.VERSE_REF)).toBe('John 3:16')
+  })
+
+  it('draws the audio meter while listening and blanks it when paused', async () => {
+    const { bridge, ctrl } = harness()
+    await ctrl.start()
+    expect(bridge.text(C.METER)).toBe('') // nothing until audio flows
+
+    ctrl.onAudioLevel(1)
+    await settle()
+    expect(bridge.text(C.METER)).toBe('[##########]')
+
+    ctrl.onAudioLevel(0)
+    await settle()
+    expect(bridge.text(C.METER)).not.toBe('[##########]') // eased down
+    expect(bridge.text(C.METER)).toMatch(/^\[#*-*\]$/) // still a bar, just quieter
+
+    ctrl.onMenu(3) // pause
+    await settle()
+    expect(bridge.text(C.METER)).toBe('') // blanked
+  })
+
+  it('ignores audio levels before listening and after stop', async () => {
+    const { bridge, ctrl } = harness()
+    ctrl.onAudioLevel(1) // phase idle
+    await settle()
+    expect(bridge.text(C.METER)).toBe('')
+
+    await ctrl.start()
+    ctrl.onMenu(1) // stop -> stopping
+    ctrl.onAudioLevel(1)
+    await settle()
+    expect(bridge.text(C.METER)).toBe('')
+  })
+
+  it('coalesces a burst of audio frames into one meter write', async () => {
+    const { bridge, ctrl } = harness()
+    await ctrl.start()
+    ctrl.onAudioLevel(0.1)
+    ctrl.onAudioLevel(0.5)
+    ctrl.onAudioLevel(1)
+    await settle()
+    const meterWrites = bridge.upgrades.filter(([id]) => id === C.METER)
+    expect(meterWrites).toHaveLength(1)
+    expect(bridge.text(C.METER)).toBe('[##########]') // last level wins
   })
 
   it('notes event moves to saved', async () => {

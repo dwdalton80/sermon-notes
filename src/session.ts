@@ -102,6 +102,7 @@ export class SessionController {
         if (ev.state === 'saving') {
           this.phase = 'stopping'
           this.clearTimers()
+          this.page.setMeter(null)
           void this.page.setTopic('Saving...')
         } else if (ev.state === 'stt_down') {
           void this.page.setTopic('Transcription paused')
@@ -119,6 +120,7 @@ export class SessionController {
         this.notesMarkdown = ev.markdown
         this.phase = 'saved'
         this.clearTimers()
+        this.page.setMeter(null)
         void this.page.showBullets('Saved', [
           `${this.seenVerses} verses captured`,
           'Double-tap to exit',
@@ -128,6 +130,12 @@ export class SessionController {
       case 'session':
         break
     }
+  }
+
+  /** Feed one audio-frame loudness (0..1) to the on-lens meter. Only drawn
+   *  while actively capturing; other phases keep it blank. */
+  onAudioLevel(level: number): void {
+    if (this.phase === 'listening' || this.phase === 'verse') this.page.setMeter(level)
   }
 
   onMenu(itemID: number): void {
@@ -140,6 +148,7 @@ export class SessionController {
     if (this.phase === 'stopping' || this.phase === 'saved') return
     this.phase = 'stopping'
     this.clearTimers()
+    this.page.setMeter(null)
     void this.page.setTopic('Saving...')
     this.requestFinish()
   }
@@ -154,6 +163,7 @@ export class SessionController {
       this.phase = 'paused'
       this.clearTimers()
       this.onPauseChange?.(true)
+      this.page.setMeter(null)
       void this.page.setTopic('Paused')
     }
   }

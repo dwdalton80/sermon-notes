@@ -1,5 +1,15 @@
 import { BOXES, BULLET_IDS, C, MENU_ITEMS, NAMES } from './layout.js'
 
+// ASCII only — the baked LVGL font has no block-drawing glyphs, so a bar built
+// from '#'/'-' inside brackets is what actually renders on the hardware.
+const METER_SEGMENTS = 10
+const METER_FILL = '#'
+const METER_EMPTY = '-'
+const meterBar = (n: number) => `[${METER_FILL.repeat(n)}${METER_EMPTY.repeat(METER_SEGMENTS - n)}]`
+// fast attack, slow release: the bar jumps up on a loud syllable and eases
+// back down over ~1s of quiet so it doesn't strobe between words
+const METER_RELEASE = 0.55
+
 // Minimal shape of the Even Hub bridge calls this app makes. The real
 // EvenAppBridge is adapted to this in main.ts (wrapping args in the SDK's
 // container classes); tests pass a fake.
@@ -40,6 +50,13 @@ export class GlassesPage {
   // All page mutations run one chain at a time. Concurrent textContainerUpgrade
   // chains interleave over the bridge and leave the display in a mixed state.
   private chain: Promise<unknown> = Promise.resolve()
+
+  // audio meter: smoothed level, latest desired bar, what's on screen, and a
+  // single-slot guard so a burst of frames never queues more than one write
+  private meterEma = 0
+  private meterWant: string | null = null
+  private meterShown = ''
+  private meterInFlight = false
 
   constructor(bridge: GlassesBridge) {
     this.bridge = bridge
@@ -129,6 +146,35 @@ export class GlassesPage {
   setVersePage(bodyPage: string): Promise<void> {
     return this.enqueue(async () => {
       await this.up(C.VERSE_BODY, bodyPage)
+    })
+  }
+
+  /** Update the top-right audio meter. `level` is 0..1; `null` blanks it.
+   *  Fire-and-forget: callers push a level per audio frame (~4/s) and this
+   *  coalesces to at most one queued bridge write, so it never delays a
+   *  bullet or verse render. */
+  setMeter(level: number | null): void {
+    let bar: string
+    if (level == null) {
+      this.meterEma = 0
+      bar = ''
+    } else {
+      this.meterEma = Math.max(level, this.meterEma * METER_RELEASE)
+      const n = Math.max(0, Math.min(METER_SEGMENTS, Math.round(this.meterEma * METER_SEGMENTS)))
+      bar = meterBar(n)
+    }
+    if (bar === this.meterShown && !this.meterInFlight) return
+    this.meterWant = bar
+    if (this.meterInFlight) return
+    this.meterInFlight = true
+    void this.enqueue(async () => {
+      const c = this.meterWant
+      this.meterWant = null
+      this.meterInFlight = false
+      if (c != null && c !== this.meterShown) {
+        this.meterShown = c
+        await this.up(C.METER, c)
+      }
     })
   }
 }

@@ -1,5 +1,39 @@
 import { describe, it, expect, vi } from 'vitest'
-import { FrameBatcher, FRAME_BYTES, createAudioCapture, type AudioBridge } from './audio.js'
+import {
+  FrameBatcher,
+  FRAME_BYTES,
+  createAudioCapture,
+  frameLevel,
+  type AudioBridge,
+} from './audio.js'
+
+/** build an s16le mono frame of `samples` at constant amplitude `amp` (0..1) */
+function constFrame(samples: number, amp: number): Uint8Array {
+  const f = new Uint8Array(samples * 2)
+  const dv = new DataView(f.buffer)
+  const v = Math.round(amp * 32767)
+  for (let i = 0; i < samples; i++) dv.setInt16(i * 2, i % 2 ? -v : v, true)
+  return f
+}
+
+describe('frameLevel', () => {
+  it('reads 0 for silence', () => {
+    expect(frameLevel(constFrame(400, 0))).toBe(0)
+    expect(frameLevel(new Uint8Array(0))).toBe(0)
+  })
+
+  it('reads full for loud audio at/above -20 dBFS', () => {
+    expect(frameLevel(constFrame(400, 0.5))).toBe(1) // ~-6 dBFS
+    expect(frameLevel(constFrame(400, 0.1))).toBeCloseTo(1, 1) // -20 dBFS
+  })
+
+  it('maps mid levels between 0 and 1', () => {
+    const q = frameLevel(constFrame(400, 0.01)) // -40 dBFS -> midpoint
+    expect(q).toBeGreaterThan(0.35)
+    expect(q).toBeLessThan(0.65)
+    expect(frameLevel(constFrame(400, 0.0005))).toBe(0) // below -60 dBFS
+  })
+})
 
 describe('FrameBatcher', () => {
   it('emits fixed-size frames and keeps the remainder', () => {
