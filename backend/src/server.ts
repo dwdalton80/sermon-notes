@@ -30,6 +30,8 @@ interface Entry {
   audio?: Buffer // finished WAV, available after a `finish` message
 }
 const sessions = new Map<string, Entry>()
+// most recent finished capture (CAPTURE_WAV), so it can be pulled without the id
+let lastCapture: { id: string; wav: Buffer } | undefined
 
 function newSession(sessionId: string): Session {
   // Stage 2: mock providers seeded from a fixture. Stage 3 swaps in real ones.
@@ -65,13 +67,15 @@ app.post('/sessions', (c) => {
 // Debug (CAPTURE_WAV=1): the raw glasses audio for a finished session, as a
 // 16 kHz mono WAV — drop it in backend/fixtures/ and replay with `npm run feed`.
 app.get('/sessions/:id/audio.wav', (c) => {
-  const entry = sessions.get(c.req.param('id'))
-  if (!entry?.audio) return c.text('no capture for this session', 404)
-  return new Response(new Uint8Array(entry.audio), {
+  const id = c.req.param('id')
+  const wav = id === 'latest' ? lastCapture?.wav : sessions.get(id)?.audio
+  const name = id === 'latest' ? (lastCapture?.id ?? 'latest') : id
+  if (!wav) return c.text('no capture for this session', 404)
+  return new Response(new Uint8Array(wav), {
     status: 200,
     headers: {
       'content-type': 'audio/wav',
-      'content-disposition': `attachment; filename="${c.req.param('id')}.wav"`,
+      'content-disposition': `attachment; filename="${name}.wav"`,
     },
   })
 })
@@ -137,11 +141,12 @@ function attach(ws: WebSocket, sessionId: string, entry: Entry): void {
       void entry.session.finish()
       if (entry.capture) {
         entry.audio = entry.capture.toWav()
+        lastCapture = { id: sessionId, wav: entry.audio }
         console.log(
           `[capture] session ${sessionId}: ${entry.capture.seconds.toFixed(0)}s, ` +
             `${(entry.audio.length / 1e6).toFixed(1)} MB` +
             `${entry.capture.truncated ? ' (truncated at cap)' : ''} — ` +
-            `download GET /sessions/${sessionId}/audio.wav`,
+            `download GET /sessions/${sessionId}/audio.wav (or /sessions/latest/audio.wav)`,
         )
       }
     }
